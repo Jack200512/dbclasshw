@@ -7,7 +7,7 @@
 ## 技术选型与初步架构
 
 - 前端：Vue 3 + Vite，UI 使用 Element Plus，富文本编辑使用 Tiptap。
-- 后端：Java 17 + Spring Boot，数据访问使用 MyBatis，认证使用 Spring Security。
+- 后端：Java 21 + Spring Boot（M1 Task 1 按已确认的本地 JDK 调整编译目标），数据访问使用 MyBatis，认证使用 Spring Security。
 - 数据库：MySQL 8.x；版本管理：Git。
 - 前后端分离的单体架构：浏览器前端通过 HTTP 调用后端，后端统一处理认证、业务、权限校验和数据库访问；WebSocket 用于文档更新同步。
 - 不使用微服务，不引入 Redis、Docker、消息队列等额外基础设施。
@@ -37,12 +37,12 @@
 
 ## 初步数据库概念模型
 
-| 实体 | 用途 | 阶段 |
-| --- | --- | --- |
-| `users` | 用户身份和基本信息 | P0 |
-| `documents` | 文档基本信息、内容、所有者、版本号 | P0 |
-| `document_permissions` | 按用户共享文档，权限为 EDITOR 或 VIEWER | P0 |
-| `document_versions` | 文档历史版本与恢复 | P1 |
+| 实体                   | 用途                                    | 阶段 |
+| ---------------------- | --------------------------------------- | ---- |
+| `users`                | 用户身份和基本信息                      | P0   |
+| `documents`            | 文档基本信息、内容、所有者、版本号      | P0   |
+| `document_permissions` | 按用户共享文档，权限为 EDITOR 或 VIEWER | P0   |
+| `document_versions`    | 文档历史版本与恢复                      | P1   |
 
 业务关系：
 
