@@ -1,0 +1,63 @@
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+replay_pid*
+# Preserve a future Maven wrapper binary.
+!**/.mvn/wrapper/maven-wrapper.jar
+
+# Vue / Vite / Node.js
+node_modules/
+dist/
+dist-ssr/
+.vite/
+coverage/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# Local environment and sensitive configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
+application-local.properties
+application-local.yml
+application-local.yaml
+application-secrets.properties
+application-secrets.yml
+application-secrets.yaml
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.settings/
+.classpath
+.project
+
+# OS / temporary files
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+*.swp
+*.swo
+*~
+*.tmp
