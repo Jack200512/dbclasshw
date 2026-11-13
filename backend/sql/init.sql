@@ -1,15 +1,27 @@
--- Run explicitly with an authorized MySQL account. Never drops or truncates data.
-CREATE DATABASE IF NOT EXISTS dbclasshw
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Fresh installations only. Existing M1 databases must use migrate-m1-m2.sql.
+CREATE DATABASE IF NOT EXISTS dbclasshw CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE dbclasshw;
-
--- M1 transition schema. owner_id and user relationships will be added in M2.
--- IF NOT EXISTS preserves existing tables; it does not migrate their structure.
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(32) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    password_hash VARCHAR(100) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT uk_users_username UNIQUE (username),
+    CONSTRAINT uk_users_email UNIQUE (email)
+) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+INSERT INTO users(username,email,password_hash,enabled)
+SELECT '__m1_migration__','m1-migration@invalid.local','!disabled:m1-migration',FALSE
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE username='__m1_migration__');
 CREATE TABLE IF NOT EXISTS documents (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    owner_id BIGINT NOT NULL,
     title VARCHAR(255) NOT NULL,
     content TEXT,
     version INT NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_documents_owner FOREIGN KEY (owner_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

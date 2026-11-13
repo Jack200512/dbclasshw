@@ -4,6 +4,9 @@ import java.time.LocalDateTime;
 
 public class Document {
     private Long id;
+    private Long ownerId;
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
     private String title;
     private String content;
     private Integer version;

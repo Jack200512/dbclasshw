@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 import java.util.List;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -22,18 +23,18 @@ public class DocumentController {
     }
 
     @PostMapping
-    public ResponseEntity<Document> create(@Valid @RequestBody CreateDocumentRequest request) {
-        Document document = service.create(request);
+    public ResponseEntity<Document> create(@Valid @RequestBody CreateDocumentRequest request, Authentication auth) {
+        Document document = service.create(request, Long.parseLong(auth.getName()));
         return ResponseEntity.created(URI.create("/api/documents/" + document.getId())).body(document);
     }
 
     @GetMapping
-    public List<Document> findAll() {
-        return service.findAll();
+    public List<Document> findAll(Authentication auth) {
+        return service.findAll(Long.parseLong(auth.getName()));
     }
 
     @GetMapping("/{id}")
-    public Document findById(@PathVariable long id) {
-        return service.findById(id);
+    public Document findById(@PathVariable long id, Authentication auth) {
+        return service.findById(id, Long.parseLong(auth.getName()));
     }
 }

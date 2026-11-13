@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.transaction.TransactionException;
 
-@RestControllerAdvice(assignableTypes = DocumentController.class)
+@RestControllerAdvice
 public class DocumentExceptionHandler {
     public record ApiError(String code, String message) { }
 
@@ -20,15 +20,25 @@ public class DocumentExceptionHandler {
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-            MethodArgumentTypeMismatchException.class})
+            MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiError invalidRequest() {
-        return new ApiError("INVALID_REQUEST", "Title must be non-blank and at most 255 characters; only title and content are accepted");
+        return new ApiError("INVALID_REQUEST", "Invalid input or unsupported fields; check field formats and lengths");
     }
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})
     @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public ApiError databaseUnavailable() {
         return new ApiError("DATABASE_UNAVAILABLE", "Document storage is temporarily unavailable");
+    }
+
+    @ExceptionHandler(org.springframework.dao.DuplicateKeyException.class)
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError conflict() { return new ApiError("ACCOUNT_CONFLICT", "Username or email already in use"); }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ApiError authenticationFailed() {
+        return new ApiError("INVALID_CREDENTIALS", "Invalid username/email or password");
     }
 }
