@@ -27,7 +27,7 @@ dbclasshw/
 
 ## 当前开发状态
 
-M0 和 M1 Task 1、Task 2 已完成。Task 2 已增加 MySQL 配置、过渡文档表初始化脚本及创建/查询 API，真实 MySQL 与后端重启持久化验证通过；详见 [阶段进度](PROGRESS.md)。首页的健康检查行为保持不变，本次未修改前端。功能边界以 [项目需求](PROJECT_SPEC.md) 为准。
+M0、M1 Task 1–3 已完成。前端文档工作台已接入真实文档 API，支持创建、列表与只读详情，数据保存到 MySQL；刷新页面及重启后端后的持久化验证通过。原健康检查仍可用。详见 [阶段进度](PROGRESS.md)，功能边界以 [项目需求](PROJECT_SPEC.md) 为准。
 
 ## 环境要求
 
@@ -37,6 +37,24 @@ M0 和 M1 Task 1、Task 2 已完成。Task 2 已增加 MySQL 配置、过渡文�
 - 首次安装和构建需要访问 npm registry 与 Maven Central。文档 API 需要运行中的 MySQL 8.x（本机客户端为 8.0.39）；原健康检查不依赖数据库连接。
 
 ## 启动与验证
+
+日常开启顺序：**MySQL → 后端 → 前端 → 浏览器**。已有数据库和本地配置无需每天重新初始化，已有前端依赖也无需每次重新安装。
+
+先确认 MySQL 服务运行。在本机 PowerShell 中查询实际服务名（不要直接假定为 `MySQL80`）：
+
+```powershell
+Get-Service -Name '*mysql*'
+```
+
+若状态为 `Running`，直接启动后端即可；若为 `Stopped`，在管理员 PowerShell 中执行：
+
+```powershell
+$mysqlServiceName = Read-Host '输入上一步查到的 MySQL 服务 Name'
+Start-Service -Name $mysqlServiceName
+Get-Service -Name $mysqlServiceName
+```
+
+也可在 Windows“服务”应用中查找并启动实际 MySQL 服务。如果查询不到服务，应检查本机已有 MySQL 的启动方式，不要重复安装服务。Agent 沙箱可能无法访问 Windows 服务管理器，此时在本机终端操作即可。
 
 先按下方 MySQL 说明初始化并配置数据库，再从仓库根目录打开两个终端。启动后端：
 
@@ -55,7 +73,9 @@ npm install
 npm run dev
 ```
 
-访问 [前端首页](http://127.0.0.1:5173/)，应显示“连接成功”及后端 JSON。后端默认使用端口 8080；Vite 固定使用 5173，端口占用时会报错。开发代理在 `frontend/vite.config.js` 中将 `/api` 转发至 `http://127.0.0.1:8080`，组件只使用相对路径。
+`npm install` 仅首次使用或依赖变更后需要执行；日常启动运行 `npm run dev` 即可。两个服务终端应保持打开，看到启动成功后再访问页面。
+
+访问 [前端首页](http://127.0.0.1:5173/)，顶部应显示“连接成功”和 `UP · Backend is running`，左侧自动加载文档列表。后端默认使用端口 8080；Vite 固定使用 5173，端口占用时会报错。开发代理在 `frontend/vite.config.js` 中将 `/api` 转发至 `http://127.0.0.1:8080`，组件只使用相对路径。
 
 停止后端（对应终端按 `Ctrl+C`），在首页点击“重新检查”应显示连接失败；重新启动后端后再次点击可恢复。页面每次打开自动检查一次，之后通过按钮检查，不持续轮询。
 
@@ -88,6 +108,50 @@ JAR 启动是 Maven 启动的替代方式，不要同时占用 8080。普通后�
 本次已验证：依赖安装、前端构建、Maven 测试与打包、Maven/JAR 启动、直连接口、Vite 代理，以及真实 Edge 浏览器的加载、成功、重试和后端停止后的失败提示。浏览器检查临时工具与截图放在 `backend/target/browser-check/`，不属于项目依赖、不提交。
 
 本地环境配置与真实凭据不得提交；后续提供必要配置模板时，仅使用占位值。
+
+## 关闭与重新开启
+
+日常关闭顺序：**前端 → 后端 → MySQL（按需）**。
+
+1. 在运行 `npm run dev` 的终端按 `Ctrl+C`，停止 Vite；若终端询问是否终止批处理，确认终止。
+2. 在运行 `mvn ... spring-boot:run` 或 `java -jar ...` 的终端按 `Ctrl+C`，等待后端退出。关闭浏览器标签页不会停止这些服务。
+3. 如果希望把 MySQL 也关闭，且确认没有其他项目或程序正在使用它，在管理员 PowerShell 中按实际服务名停止：
+
+```powershell
+Get-Service -Name '*mysql*'
+$mysqlServiceName = Read-Host '输入要停止的 MySQL 服务 Name'
+Stop-Service -Name $mysqlServiceName
+Get-Service -Name $mysqlServiceName
+```
+
+MySQL 是本机独立服务，前后端退出后仍可保持运行；正常停止服务不会删除数据库。数据库中已经创建成功的文档会保留，尚未提交成功的表单输入不会自动保存。
+
+如果原服务终端已找不到，先查监听端口和对应进程：
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 5173,8080 -ErrorAction SilentlyContinue |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+$serviceProcessId = [int](Read-Host '输入需要核对的 OwningProcess')
+Get-CimInstance Win32_Process -Filter "ProcessId = $serviceProcessId" |
+    Select-Object ProcessId, Name, CommandLine
+```
+
+确认命令行确实属于本仓库的 Vite 或 Spring Boot 后，才可用 `Stop-Process -Id $serviceProcessId` 停止该进程。优先回到原终端使用 `Ctrl+C`；不要批量结束所有 `java`、`node` 或 `mysqld` 进程，不要使用结束进程的方式关闭 MySQL。
+
+关闭后再次查询 5173、8080：没有监听记录表示前后端监听已停止（并不代表 MySQL 已停止）。MySQL 是否停止以 `Get-Service` 的状态为准。
+
+重新开启时重复“启动与验证”的步骤：启动 MySQL，在仓库根目录分别打开两个终端启动后端和前端，再访问 `http://127.0.0.1:5173/`。仅重启后端时，前端和 MySQL 可以保持运行；后端启动成功后在页面刷新列表或重试即可，无需重新执行建表 SQL。
+
+## M1 浏览器操作闭环
+
+1. 按下方说明初始化 MySQL、填写本地配置，并分别启动后端和前端。
+2. 打开 `http://127.0.0.1:5173/`，确认连接成功、文档列表加载完成；无文档时显示空状态。
+3. 点击“新建文档”，填写标题（必填、不可全为空格、最多 255 个字符）与选填正文，再点击“创建文档”。提交期间按钮和表单禁用，防止重复创建。
+4. 创建成功后列表更新，主区域通过单篇 API 加载新文档。也可点击左侧其他文档查看标题、正文、版本及时间；正文安全按普通文本显示并保留换行。
+5. 刷新浏览器，在列表中重新选择该文档，确认数据仍在。停止并重新启动后端后，再刷新列表并查看同一文档，确认数据仍在 MySQL 中。
+6. 后端停止时，列表、详情和创建操作显示错误；重启后可使用“重试列表”“重试详情”或重新提交恢复。创建失败保留输入；请求超时后先刷新列表确认是否已经创建，避免把重试当成新的创建。
+
+Task 3 验证：`npm run build` 通过；启用真实 MySQL 的现有 Maven 测试共 5 项全部通过。真实 Edge 浏览器验证了创建、列表、详情、刷新、后端进程重启持久化、重复点击只发出一次 POST、失败后输入保留与重试，以及延迟旧响应不会覆盖当前详情。空列表与详情 404 使用隔离响应测试界面，核心闭环始终访问真实 API 和 MySQL，未清空已有数据。临时浏览器脚本和截图位于被忽略的 `backend/target/browser-check/`，未增加前端测试框架或项目依赖。
 
 ## MySQL 初始化与本地配置
 

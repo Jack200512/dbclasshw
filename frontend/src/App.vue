@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { ElAlert, ElButton, ElCard } from 'element-plus'
+import DocumentWorkspace from './DocumentWorkspace.vue'
 
 const state = ref('loading')
 const message = ref('正在请求后端健康检查接口…')
@@ -38,7 +39,7 @@ onMounted(checkHealth)
   <main>
     <el-card>
       <h1>dbclasshw · 多人在线文档编辑系统</h1>
-      <p>数据库课程大作业 · M1 前后端通信验证</p>
+      <p>数据库课程大作业 · 文档工作台</p>
       <section aria-live="polite" :aria-busy="state === 'loading'">
         <el-alert
           :title="message"
@@ -46,12 +47,13 @@ onMounted(checkHealth)
           :closable="false"
           show-icon
         />
-        <pre v-if="health">{{ JSON.stringify(health, null, 2) }}</pre>
+        <p v-if="health" class="health-message">{{ health.status }} · {{ health.message }}</p>
       </section>
       <el-button type="primary" :loading="state === 'loading'" @click="checkHealth">
         {{ state === 'loading' ? '正在连接' : '重新检查' }}
       </el-button>
     </el-card>
+    <DocumentWorkspace />
   </main>
 </template>
 
@@ -63,8 +65,8 @@ body {
   font-family: system-ui, sans-serif;
 }
 main {
-  max-width: 760px;
-  margin: 64px auto;
+  max-width: 1200px;
+  margin: 32px auto;
   padding: 0 20px;
 }
 h1 {
@@ -79,7 +81,6 @@ pre {
   background: #f5f7fa;
   white-space: pre-wrap;
 }
-.el-button {
-  margin-top: 20px;
-}
+.workspace { margin-top: 20px; }
+.health-message { font-size: 13px; }
 </style>
