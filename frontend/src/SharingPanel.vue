@@ -45,7 +45,7 @@ onMounted(load)
 
 <template>
   <section class="sharing" aria-label="共享管理">
-    <h3>共享管理</h3>
+    <h3>成员与权限</h3>
     <p>编辑者可查看和保存；查看者只能阅读。所有者保持不变。</p>
     <div class="share-actions">
       <el-input v-model="login" aria-label="共享用户名或邮箱" placeholder="注册用户的用户名或邮箱" maxlength="254" :disabled="busy" />
@@ -59,21 +59,23 @@ onMounted(load)
     <p v-else-if="!members.length && !error">尚未共享给其他用户。</p>
     <ul class="members">
       <li v-for="member in members" :key="member.userId" :data-user-id="member.userId">
-        <span>{{ member.username }} · {{ member.email }}</span>
+        <span><strong>{{ member.username }}</strong><small>{{ member.email }}</small></span>
         <el-select :model-value="member.role" :aria-label="`${member.username} 的角色`" :disabled="busy" @change="value => change('PUT', member.userId, { role: value })">
           <el-option label="查看者 VIEWER" value="VIEWER" /><el-option label="编辑者 EDITOR" value="EDITOR" />
         </el-select>
-        <el-button type="danger" :disabled="busy" @click="revoke(member)">撤销共享</el-button>
+        <el-button type="danger" plain :disabled="busy" @click="revoke(member)">撤销共享</el-button>
       </li>
     </ul>
   </section>
 </template>
 
 <style scoped>
-.sharing { margin-top: 24px; padding-top: 16px; border-top: 1px solid #dcdfe6; }
+.sharing h3 { margin-top: 0; font-size: 15px; }
 .share-actions, .members li { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
-.share-actions .el-input { width: 260px; }
+.share-actions .el-input { width: 250px; flex: 1; min-width: 180px; }
 .el-select { width: 180px; }
 .members { list-style: none; padding: 0; }
-.members span { overflow-wrap: anywhere; }
+.members li { padding: 12px 0; border-bottom: 1px solid #ebeef5; }
+.members span { overflow-wrap: anywhere; flex: 1; min-width: 180px; }
+.members small { display: block; color: #737b89; margin-top: 4px; }
 </style>

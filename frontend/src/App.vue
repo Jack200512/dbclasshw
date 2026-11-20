@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
-import { ElAlert, ElButton, ElCard } from 'element-plus'
+import { ElAlert, ElButton, ElTag } from 'element-plus'
 import DocumentWorkspace from './DocumentWorkspace.vue'
 import UserPanel from './UserPanel.vue'
 import { requestJson, refreshCsrf } from './api'
@@ -74,27 +74,27 @@ onMounted(checkHealth)
 
 <template>
   <main>
-    <el-card>
+    <header class="app-header">
+      <div class="app-brand">
       <h1>dbclasshw · 多人在线文档编辑系统</h1>
-      <p>数据库课程大作业 · 文档工作台</p>
-      <section aria-live="polite" :aria-busy="state === 'loading'">
-        <el-alert
-          :title="message"
+      <p>文档工作台 · 共享、协作与版本记录</p>
+      </div>
+      <section class="health-status" aria-label="后端连接状态" aria-live="polite" :aria-busy="state === 'loading'">
+        <el-tag v-if="state !== 'error'"
           :type="state === 'loading' ? 'info' : state"
-          :closable="false"
-          show-icon
-        />
-        <p v-if="health" class="health-message">{{ health.status }} · {{ health.message }}</p>
-      </section>
-      <el-button type="primary" :loading="state === 'loading'" @click="checkHealth">
+        >{{ message }}</el-tag>
+        <span v-else class="connection-error" role="alert">{{ message }}</span>
+        <span v-if="health" class="health-message">{{ health.status }} · {{ health.message }}</span>
+        <el-button size="small" :loading="state === 'loading'" @click="checkHealth">
         {{ state === 'loading' ? '正在连接' : '重新检查' }}
-      </el-button>
-    </el-card>
+        </el-button>
+      </section>
+    </header>
     <p v-if="restoring" role="status">正在恢复登录状态…</p>
     <el-alert v-if="sessionMessage" :title="sessionMessage" type="info" :closable="false" />
-    <el-button v-if="!restoring && !user" @click="restoreSession">重新检查会话</el-button>
+    <el-button v-if="!restoring && !user" class="session-retry" @click="restoreSession">重新检查会话</el-button>
     <template v-if="!restoring && user">
-      <p>当前用户：{{ user.username }} · {{ user.email }} <el-button :loading="logoutBusy" @click="logout">退出登录</el-button></p>
+      <div class="account-bar"><span>当前用户：<strong>{{ user.username }}</strong> · {{ user.email }}</span><el-button :loading="logoutBusy" @click="logout">退出登录</el-button></div>
       <UserPanel :user="user" @updated="user = $event" />
       <DocumentWorkspace :key="user.id" />
     </template>
@@ -107,15 +107,19 @@ body {
   margin: 0;
   background: #f5f7fa;
   color: #303133;
-  font-family: system-ui, sans-serif;
+  font-family: system-ui, 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
 }
+* { box-sizing: border-box; }
 main {
-  max-width: 1200px;
-  margin: 32px auto;
-  padding: 0 20px;
+  max-width: 1560px;
+  margin: 20px auto;
+  padding: 0 28px;
 }
 h1 {
-  font-size: 24px;
+  font-size: 21px;
+  line-height: 1.5;
+  margin: 0;
 }
 p {
   color: #606266;
@@ -126,6 +130,17 @@ pre {
   background: #f5f7fa;
   white-space: pre-wrap;
 }
-.workspace { margin-top: 20px; }
+.app-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; padding: 16px 20px; background: white; border: 1px solid #e4e7ed; border-radius: 8px; }
+.app-brand p { margin: 4px 0 0; font-size: 13px; color: #737b89; }
+.health-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; max-width: 460px; }
+.connection-error { color: #b42318; overflow-wrap: anywhere; }
+.account-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 12px 0; }
+.account-bar span { min-width: 0; overflow-wrap: anywhere; }
+.session-retry { display: block; margin: 16px auto; }
+.el-card { --el-card-border-radius: 8px; box-shadow: none; }
+.el-alert { margin: 10px 0; overflow-wrap: anywhere; }
+.el-button + .el-button { margin-left: 0; }
+.workspace { margin-top: 16px; }
 .health-message { font-size: 13px; }
+@media (max-width: 1000px) { main { padding: 0 16px; } .health-status { justify-content: flex-start; } }
 </style>
