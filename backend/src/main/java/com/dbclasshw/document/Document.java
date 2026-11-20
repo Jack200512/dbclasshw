@@ -5,10 +5,16 @@ import java.time.LocalDateTime;
 public class Document {
     private Long id;
     private Long ownerId;
+    private String currentRole;
+    public String getCurrentRole() { return currentRole; }
+    public void setCurrentRole(String currentRole) { this.currentRole = currentRole; }
     public Long getOwnerId() { return ownerId; }
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
     private String title;
     private String content;
+    private String contentFormat;
+    public String getContentFormat() { return contentFormat; }
+    public void setContentFormat(String contentFormat) { this.contentFormat = contentFormat; }
     private Integer version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

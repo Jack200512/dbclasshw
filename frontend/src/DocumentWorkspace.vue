@@ -1,9 +1,14 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElAlert, ElButton, ElCard, ElEmpty, ElForm, ElFormItem, ElInput } from 'element-plus'
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { ElAlert, ElButton, ElCard, ElEmpty, ElForm, ElFormItem, ElInput, ElMessageBox } from 'element-plus'
 import { requestJson } from './api'
+import SharingPanel from './SharingPanel.vue'
+import { createDocumentChannel } from './documentChannel'
+const RichTextEditor = defineAsyncComponent(() => import('./RichTextEditor.vue'))
 
+const emptyContent = () => ({ type: 'doc', content: [{ type: 'paragraph' }] })
 const documents = ref([])
+const keyword = ref('')
 const listLoading = ref(false)
 const listError = ref('')
 const mode = ref('welcome')
@@ -11,147 +16,249 @@ const selectedId = ref(null)
 const document = ref(null)
 const detailLoading = ref(false)
 const detailError = ref('')
-const form = reactive({ title: '', content: '' })
-const submitting = ref(false)
-const createError = ref('')
+const editing = ref(false)
+const form = reactive({ title: '', content: emptyContent() })
+const baseline = ref('')
+const busy = ref(false)
 const notice = ref('')
-const titleError = ref('')
+const actionError = ref('')
+const conflict = ref(false)
+const editorKey = ref(0)
+const realtimeStatus = ref('未连接实时通知')
+const remoteNotice = ref('')
+let syncRequest = 0
+let pendingSync = null
+const channel = createDocumentChannel(checkRemote, value => { realtimeStatus.value = value })
+const showSharing = ref(false)
+const listScope = ref('all')
+const visibleDocuments = computed(() => documents.value.filter(item => listScope.value === 'all' || (listScope.value === 'mine' ? item.currentRole === 'OWNER' : item.currentRole !== 'OWNER')))
+const canEdit = computed(() => mode.value === 'create' || ['OWNER', 'EDITOR'].includes(document.value?.currentRole))
+const snapshot = () => JSON.stringify({ title: form.title, content: form.content })
+const dirty = computed(() => (mode.value === 'create' || editing.value) && baseline.value !== snapshot())
 const validTitle = computed(() => form.title.trim().length > 0 && form.title.length <= 255)
 let detailRequest = 0
 let listRequest = 0
 
-function formatTime(value) {
-  return value ? value.replace('T', ' ') : '—'
+async function checkRemote(event) {
+  const id = document.value?.id
+  if (!id || event.documentId !== id) return
+  if (event.type === 'DOCUMENT_UPDATED' && event.version <= document.value.version) return
+  if (event.type === 'ACCESS_LOST') remoteNotice.value = '订阅失效，正在核对权限；本地草稿不会被覆盖。'
+  if (busy.value) { pendingSync = event; return }
+  const request = ++syncRequest
+  try {
+    const latest = await requestJson(`/api/documents/${id}`)
+    if (request !== syncRequest || document.value?.id !== id) return
+    if (busy.value) { pendingSync = event; return }
+    if (latest.version < document.value.version) return
+    // Update access metadata even when content is protected by a dirty draft.
+    document.value = { ...document.value, currentRole: latest.currentRole }
+    if (dirty.value) {
+      remoteNotice.value = latest.version > document.value.version
+        ? `检测到远端更新（版本 ${latest.version}），本地草稿已保留。重新加载前请确认放弃修改。`
+        : '已重新核对远端状态，本地未保存草稿已保留。'
+      return
+    }
+    if (latest.version > document.value.version) {
+      setDraft(latest)
+      document.value = latest
+      if (!canEdit.value) editing.value = false
+      remoteNotice.value = '文档已自动同步到最新版本。'
+      loadDocuments()
+    } else document.value = latest
+  } catch (error) {
+    if (request !== syncRequest || document.value?.id !== id) return
+    remoteNotice.value = `${error.message} 本地内容已保留。`
+    if (event.type === 'ACCESS_LOST') document.value = { ...document.value, currentRole: null }
+  }
 }
+watch(() => document.value?.id, id => {
+  ++syncRequest
+  pendingSync = null
+  remoteNotice.value = ''
+  if (id) channel.start(id)
+  else channel.stop()
+})
+watch(busy, value => { if (!value && pendingSync) { const event = pendingSync; pendingSync = null; checkRemote(event) } })
+function checkOnFocus() { if (document.value) checkRemote({ type: 'RECHECK', documentId: document.value.id }) }
 
+function formatTime(value) { return value ? value.replace('T', ' ') : '—' }
+function bodyOf(row) {
+  if (row.contentFormat === 'TIPTAP_JSON') return JSON.parse(row.content)
+  if (row.contentFormat !== 'PLAIN_TEXT') throw new Error('无法识别的正文格式。')
+  // Explicit format marker, never interpret historical strings as HTML or guessed JSON.
+  return { type: 'doc', content: (row.content || '').split(/\r?\n/).map(text => ({
+    type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}),
+  })) }
+}
+function setDraft(row) {
+  form.title = row.title
+  form.content = bodyOf(row)
+  baseline.value = snapshot()
+  editorKey.value++
+}
+async function mayLeave() {
+  if (!dirty.value) return true
+  try {
+    await ElMessageBox.confirm('当前有未保存修改，是否放弃这些修改？', '未保存修改', {
+      confirmButtonText: '放弃修改', cancelButtonText: '继续编辑', type: 'warning',
+    })
+    return true
+  } catch { return false }
+}
+function unload(event) { if (dirty.value) { event.preventDefault(); event.returnValue = '' } }
+function beforeLeave(event) {
+  if (dirty.value && !window.confirm('当前有未保存修改，是否放弃并退出登录？')) event.preventDefault()
+}
 async function loadDocuments() {
   const request = ++listRequest
   listLoading.value = true
   listError.value = ''
   try {
-    const result = await requestJson('/api/documents')
+    const result = await requestJson(`/api/documents?keyword=${encodeURIComponent(keyword.value)}`)
     if (request === listRequest) documents.value = result
-  } catch (error) {
-    if (request === listRequest) listError.value = error.message
-  } finally {
-    if (request === listRequest) listLoading.value = false
-  }
+  } catch (error) { if (request === listRequest) listError.value = error.message }
+  finally { if (request === listRequest) listLoading.value = false }
 }
-
-async function openDocument(id) {
+async function openDocument(id, skipPrompt = false) {
+  if (busy.value || (!skipPrompt && !await mayLeave())) return
   const request = ++detailRequest
   mode.value = 'detail'
+  showSharing.value = false
+  editing.value = false
   selectedId.value = id
   document.value = null
   detailError.value = ''
+  notice.value = ''
+  actionError.value = ''
+  conflict.value = false
   detailLoading.value = true
   try {
     const result = await requestJson(`/api/documents/${id}`)
-    // A newer selection (including the create form) owns the detail area.
-    if (request === detailRequest) document.value = result
-  } catch (error) {
-    if (request === detailRequest) detailError.value = error.message
-  } finally {
-    if (request === detailRequest) detailLoading.value = false
-  }
+    if (request === detailRequest) { setDraft(result); document.value = result }
+  } catch (error) { if (request === detailRequest) detailError.value = error.message }
+  finally { if (request === detailRequest) detailLoading.value = false }
 }
-
-function newDocument() {
-  if (submitting.value) return
+async function newDocument() {
+  if (busy.value || !await mayLeave()) return
   ++detailRequest
   detailLoading.value = false
   selectedId.value = null
+  document.value = null
   mode.value = 'create'
+  showSharing.value = false
+  editing.value = true
+  form.title = ''
+  form.content = emptyContent()
+  baseline.value = snapshot()
+  editorKey.value++
   notice.value = ''
+  actionError.value = ''
+  conflict.value = false
 }
-
-async function createDocument() {
-  if (submitting.value) return
-  titleError.value = validTitle.value ? '' : '请输入非空标题，最多 255 个字符。'
-  if (!validTitle.value) return
-  submitting.value = true
-  createError.value = ''
+async function saveDocument() {
+  if (busy.value || !validTitle.value || !canEdit.value) return
+  busy.value = true
+  actionError.value = ''
   notice.value = ''
   try {
-    const created = await requestJson('/api/documents', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: form.title, content: form.content }),
+    const creating = mode.value === 'create'
+    const saved = await requestJson(creating ? '/api/documents' : `/api/documents/${selectedId.value}`, {
+      method: creating ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: form.title, content: form.content, ...(!creating ? { version: document.value.version } : {}) }),
     })
-    form.title = ''
-    form.content = ''
-    titleError.value = ''
-    notice.value = '文档创建成功。'
-    // Include the confirmed creation immediately, even if a concurrent list refresh fails.
-    documents.value = [...documents.value.filter(item => item.id !== created.id), created]
-    await Promise.all([loadDocuments(), openDocument(created.id)])
+    setDraft(saved)
+    document.value = saved
+    selectedId.value = saved.id
+    mode.value = 'detail'
+    editing.value = false
+    conflict.value = false
+    notice.value = creating ? '文档创建成功。' : '文档保存成功。'
+    await loadDocuments()
   } catch (error) {
-    createError.value = `${error.message} 输入已保留；若请求超时，请先刷新列表确认是否已创建。`
-  } finally {
-    submitting.value = false
-  }
+    conflict.value = error.code === 'DOCUMENT_VERSION_CONFLICT'
+    actionError.value = error.message + (conflict.value ? '' : ' 本地输入已保留；超时后请先确认服务器状态再重试。')
+  } finally { busy.value = false }
 }
-
-onMounted(loadDocuments)
+async function cancelEdit() {
+  if (busy.value || !await mayLeave()) return
+  if (document.value) { setDraft(document.value); editing.value = false }
+  else { mode.value = 'welcome'; editing.value = false }
+}
+async function deleteDocument() {
+  if (!document.value || busy.value || document.value.currentRole !== 'OWNER') return
+  try {
+    await ElMessageBox.confirm(dirty.value ? '当前有未保存修改。删除后不可恢复，确定删除这篇文档？' : '删除后不可恢复，确定删除这篇文档？', '删除文档', {
+      confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning',
+    })
+  } catch { return }
+  busy.value = true
+  try {
+    await requestJson(`/api/documents/${document.value.id}`, { method: 'DELETE' })
+    ++detailRequest
+    mode.value = 'welcome'
+    editing.value = false
+    selectedId.value = null
+    document.value = null
+    actionError.value = ''
+    notice.value = '文档已删除。'
+    await loadDocuments()
+  } catch (error) { actionError.value = error.message }
+  finally { busy.value = false }
+}
+onMounted(() => { loadDocuments(); window.addEventListener('beforeunload', unload); window.addEventListener('before-workspace-leave', beforeLeave); window.addEventListener('focus', checkOnFocus) })
+onBeforeUnmount(() => { ++detailRequest; ++listRequest; ++syncRequest; channel.stop(); window.removeEventListener('beforeunload', unload); window.removeEventListener('before-workspace-leave', beforeLeave); window.removeEventListener('focus', checkOnFocus) })
 </script>
 
 <template>
   <div class="workspace">
     <el-card class="document-list">
-      <div class="panel-heading">
-        <h2>文档列表</h2>
-        <el-button type="primary" :disabled="submitting" @click="newDocument">新建文档</el-button>
+      <div class="panel-heading"><h2>文档列表</h2><el-button type="primary" :disabled="busy" @click="newDocument">新建文档</el-button></div>
+      <div class="actions" aria-label="文档范围">
+        <el-button @click="listScope = 'all'">全部文档</el-button>
+        <el-button @click="listScope = 'mine'">我的文档</el-button>
+        <el-button @click="listScope = 'shared'">共享给我的</el-button>
       </div>
-      <el-button :loading="listLoading" @click="loadDocuments">刷新列表</el-button>
+      <el-form class="search" @submit.prevent="loadDocuments">
+        <el-input v-model="keyword" aria-label="标题关键词" placeholder="按标题搜索" maxlength="255" clearable />
+        <el-button native-type="submit" :loading="listLoading">搜索</el-button>
+        <el-button :loading="listLoading" @click="loadDocuments">刷新列表</el-button>
+      </el-form>
       <p v-if="listLoading" role="status">正在加载文档列表…</p>
-      <div v-if="listError" role="alert">
-        <el-alert :title="listError" type="error" :closable="false" />
-        <el-button :disabled="listLoading" @click="loadDocuments">重试列表</el-button>
-      </div>
-      <el-empty v-if="!listLoading && !listError && documents.length === 0" description="暂无文档，点击新建文档开始。" />
-      <ul v-if="documents.length" class="documents" aria-label="文档列表">
-        <li v-for="item in documents" :key="item.id">
-          <button
-            class="document-link"
-            :class="{ selected: selectedId === item.id }"
-            :disabled="submitting"
-            :aria-pressed="selectedId === item.id"
-            @click="openDocument(item.id)"
-          >
-            <strong>{{ item.title }}</strong>
-            <small>创建于 {{ formatTime(item.createdAt) }}</small>
+      <div v-if="listError" role="alert"><el-alert :title="listError" type="error" :closable="false" /><el-button @click="loadDocuments">重试列表</el-button></div>
+      <el-empty v-if="!listLoading && !listError && visibleDocuments.length === 0" :description="keyword ? '没有匹配的文档。' : '暂无文档，点击新建文档开始。'" />
+      <ul v-if="visibleDocuments.length" class="documents" aria-label="文档列表">
+        <li v-for="item in visibleDocuments" :key="item.id">
+          <button class="document-link" :class="{ selected: selectedId === item.id }" :disabled="busy" :aria-pressed="selectedId === item.id" @click="openDocument(item.id)">
+            <strong>{{ item.title }}</strong><small>{{ item.currentRole === 'OWNER' ? '我的文档' : '共享给我' }} · {{ item.currentRole }}</small><small>创建于 {{ formatTime(item.createdAt) }}</small>
           </button>
         </li>
       </ul>
     </el-card>
-
     <el-card class="document-main">
       <el-alert v-if="notice" :title="notice" type="success" :closable="false" class="notice" />
-      <section v-if="mode === 'create'" aria-label="创建文档">
-        <h2>创建文档</h2>
-        <el-form label-position="top" @submit.prevent="createDocument">
-          <el-form-item label="标题（必填）" :error="titleError">
-            <el-input v-model="form.title" aria-label="文档标题" maxlength="255" show-word-limit :disabled="submitting" />
-          </el-form-item>
-          <el-form-item label="正文（选填）">
-            <el-input v-model="form.content" aria-label="文档正文" type="textarea" :rows="12" :disabled="submitting" />
-          </el-form-item>
-          <el-alert v-if="createError" :title="createError" type="error" :closable="false" class="notice" />
-          <el-button type="primary" native-type="submit" :loading="submitting" :disabled="!validTitle || submitting">创建文档</el-button>
+      <p v-if="detailLoading" role="status">正在加载文档详情…</p>
+      <div v-else-if="mode === 'detail' && detailError" role="alert"><el-alert :title="detailError" type="error" :closable="false" /><el-button @click="openDocument(selectedId)">重试详情</el-button></div>
+      <section v-else-if="mode === 'create' || document" aria-label="文档编辑区">
+        <h2>{{ mode === 'create' ? '创建文档' : document.title }}</h2>
+        <p v-if="document" class="metadata">编号 {{ document.id }} · 版本 {{ document.version }} · {{ document.currentRole }} · 更新 {{ formatTime(document.updatedAt) }}</p>
+        <p v-if="document" class="realtime-status">{{ realtimeStatus }} <el-button size="small" @click="channel.reconnect()">重连实时通知</el-button></p>
+        <el-alert v-if="remoteNotice" :title="remoteNotice" type="info" :closable="false" />
+        <p role="status">{{ dirty ? '有未保存修改' : editing ? '编辑中' : '只读查看' }}</p>
+        <el-form label-position="top" @submit.prevent="saveDocument">
+          <el-form-item v-if="editing" label="标题（必填，最多 255 字符）"><el-input v-model="form.title" aria-label="文档标题" maxlength="255" show-word-limit :disabled="busy || !canEdit" /></el-form-item>
+          <RichTextEditor :key="editorKey" v-model="form.content" :readonly="!editing || busy || !canEdit" />
+          <el-alert v-if="actionError" :title="actionError" type="error" :closable="false" class="notice" />
+          <div class="actions">
+            <el-button v-if="editing" type="primary" native-type="submit" :loading="busy" :disabled="!validTitle || busy || !canEdit">{{ mode === 'create' ? '创建文档' : '保存文档' }}</el-button>
+            <el-button v-else-if="canEdit" :disabled="busy" @click="editing = true">编辑文档</el-button>
+            <el-button v-if="editing" :disabled="busy" @click="cancelEdit">取消编辑</el-button>
+            <el-button v-if="document" :disabled="busy" @click="openDocument(document.id)">{{ conflict ? '重新加载最新版本' : '重新加载' }}</el-button>
+            <el-button v-if="document?.currentRole === 'OWNER'" type="danger" :disabled="busy" @click="deleteDocument">删除文档</el-button>
+            <el-button v-if="document?.currentRole === 'OWNER'" :disabled="busy" @click="showSharing = !showSharing">共享文档</el-button>
+          </div>
         </el-form>
-      </section>
-      <section v-else-if="mode === 'detail'" aria-label="文档详情" :aria-busy="detailLoading">
-        <p v-if="detailLoading" role="status">正在加载文档详情…</p>
-        <div v-else-if="detailError" role="alert">
-          <el-alert :title="detailError" type="error" :closable="false" />
-          <el-button @click="openDocument(selectedId)">重试详情</el-button>
-        </div>
-        <article v-else-if="document">
-          <h2>{{ document.title }}</h2>
-          <p class="metadata">编号 {{ document.id }} · 版本 {{ document.version }}</p>
-          <p class="metadata">创建 {{ formatTime(document.createdAt) }} · 更新 {{ formatTime(document.updatedAt) }}</p>
-          <div class="document-content">{{ document.content || '（正文为空）' }}</div>
-        </article>
+        <SharingPanel v-if="showSharing && document?.currentRole === 'OWNER'" :key="document.id" :document-id="document.id" />
       </section>
       <el-empty v-else description="从左侧选择文档，或创建一篇新文档。" />
     </el-card>
@@ -173,4 +280,7 @@ small { display: block; color: #606266; margin-top: 8px; }
 .document-content { white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid #ebeef5; margin-top: 20px; padding-top: 20px; line-height: 1.8; min-height: 240px; }
 .notice { margin-bottom: 20px; }
 .document-main { min-height: 440px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.search { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.search .el-button { margin-left: 0; }
 </style>

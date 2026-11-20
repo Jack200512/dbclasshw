@@ -29,12 +29,24 @@ public class DocumentController {
     }
 
     @GetMapping
-    public List<Document> findAll(Authentication auth) {
-        return service.findAll(Long.parseLong(auth.getName()));
+    public List<Document> findAll(Authentication auth, @org.springframework.web.bind.annotation.RequestParam(defaultValue="") String keyword) {
+        return service.findAll(Long.parseLong(auth.getName()),keyword);
     }
 
     @GetMapping("/{id}")
     public Document findById(@PathVariable long id, Authentication auth) {
         return service.findById(id, Long.parseLong(auth.getName()));
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/{id}")
+    public Document update(@PathVariable long id, Authentication auth,
+                           @Valid @RequestBody UpdateDocumentRequest request) {
+        return service.update(id,Long.parseLong(auth.getName()),request);
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable long id,Authentication auth) {
+        service.delete(id,Long.parseLong(auth.getName()));
+        return ResponseEntity.noContent().build();
     }
 }

@@ -44,7 +44,8 @@ public class SecurityConfig {
     }
 
     @Bean SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityContextRepository contexts,
-                                                 CsrfTokenRepository csrf, ObjectMapper json) throws Exception {
+                                                 CsrfTokenRepository csrf, ObjectMapper json,
+                                                 com.dbclasshw.sync.DocumentSocketHandler sockets) throws Exception {
         http.csrf(c -> c.csrfTokenRepository(csrf))
                 .securityContext(c -> c.securityContextRepository(contexts))
                 .requestCache(c -> c.disable())
@@ -61,6 +62,10 @@ public class SecurityConfig {
                             json.writeValue(res.getOutputStream(), Map.of("code","FORBIDDEN","message","Permission denied or CSRF token invalid"));
                         }))
                 .logout(l -> l.logoutUrl("/api/auth/logout").deleteCookies("JSESSIONID")
+                        .addLogoutHandler((req,res,auth) -> {
+                            var session=req.getSession(false);
+                            if(session!=null) sockets.closeSession(session.getId());
+                        })
                         .logoutSuccessHandler((req,res,auth) -> {
                             res.setContentType("application/json");
                             json.writeValue(res.getOutputStream(),Map.of("message","Logged out"));

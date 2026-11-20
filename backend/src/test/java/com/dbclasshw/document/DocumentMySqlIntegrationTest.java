@@ -91,7 +91,8 @@ class DocumentMySqlIntegrationTest {
                 assertThat(a.request("POST","/api/documents",Map.of("title",title),true).status).isEqualTo(400);
             for(String field:new String[]{"ownerId","owner_id","id","version","createdAt","updatedAt"})
                 assertThat(a.request("POST","/api/documents",Map.of("title","forged",field,1),true).status).isEqualTo(400);
-            var created=a.request("POST","/api/documents",Map.of("title","M2-test-"+suffix,"content","真实 MySQL 😀\nprivate"),true);
+            var rich=Map.of("type","doc","content",List.of(Map.of("type","paragraph","content",List.of(Map.of("type","text","text","真实 MySQL 😀 private")))));
+            var created=a.request("POST","/api/documents",Map.of("title","M2-test-"+suffix,"content",rich),true);
             assertThat(created.status).isEqualTo(201);
             documentId=created.body.get("id").asLong();
             assertThat(jdbc.queryForObject("SELECT owner_id FROM documents WHERE id=?",Long.class,documentId)).isEqualTo(userId);

@@ -36,14 +36,23 @@ export async function requestJson(path, options = {}) {
         csrf = null
         const me = await fetch('/api/users/me', { credentials: 'same-origin', cache: 'no-store' })
         if (me.status === 401) window.dispatchEvent(new Event('session-expired'))
-        throw new Error('安全令牌或会话已失效，请重试或重新登录。')
+        throw new Error('权限不足或安全令牌已失效；权限可能已被降级，请重新加载文档或重试。')
       }
-      if (response.status === 409) throw new Error('用户名或邮箱已被使用。')
-      if (response.status === 404) throw new Error('文档不存在，请刷新列表后重试。')
-      if (response.status === 400) throw new Error('输入无效，请检查必填项、格式与长度。')
+      if (response.status === 409) {
+        const body = await response.json()
+        const error = new Error(body.code === 'DOCUMENT_VERSION_CONFLICT'
+          ? '文档已被其他操作更新。当前内容已保留，请重新加载最新版本后再编辑。'
+          : body.code === 'SHARING_CONFLICT' ? '该用户已获得此文档授权，请修改现有角色。' : '用户名或邮箱已被使用。')
+        error.code = body.code
+        throw error
+      }
+      if (response.status === 404) throw new Error('文档、授权记录不存在或访问权限已被撤销，请刷新列表后重试。')
+      if (response.status === 400) throw new Error(path.includes('/permissions')
+        ? '共享请求无效：请确认目标用户已注册、不是所有者，且角色为 EDITOR 或 VIEWER。'
+        : '输入无效，请检查必填项、格式与长度。')
       throw new Error(`请求失败（HTTP ${response.status}），请稍后重试。`)
     }
-    return await response.json()
+    return response.status === 204 ? null : await response.json()
   } catch (error) {
     if (error.name === 'TimeoutError') throw new Error('请求超时，请检查连接后重试。')
     if (error instanceof TypeError) throw new Error('无法连接后端，请确认服务已启动后重试。')

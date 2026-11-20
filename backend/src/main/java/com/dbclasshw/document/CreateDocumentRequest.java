@@ -5,5 +5,5 @@ import jakarta.validation.constraints.Size;
 
 public record CreateDocumentRequest(
         @NotBlank @Size(max = 255) String title,
-        String content) {
+        @jakarta.validation.constraints.NotNull com.fasterxml.jackson.databind.JsonNode content) {
 }

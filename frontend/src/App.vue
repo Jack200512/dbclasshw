@@ -27,6 +27,7 @@ async function restoreSession() {
 }
 async function logout() {
   if (logoutBusy.value) return
+  if (!window.dispatchEvent(new Event('before-workspace-leave', { cancelable: true }))) return
   logoutBusy.value = true
   try {
     await requestJson('/api/auth/logout', { method: 'POST' })

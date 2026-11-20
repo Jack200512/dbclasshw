@@ -7,7 +7,10 @@
 - 当前前端：Vue 3.5.45、Vite 7.3.8、Element Plus 2.14.8，使用 JavaScript；Vue 插件版本为 6.0.11。
 - 当前后端：Java 21 编译目标、Spring Boot 3.5.16、Maven、MyBatis Starter 3.0.5、MySQL Connector/J 9.7.0（由 Spring Boot 管理版本）。
 - 认证：Spring Security、BCrypt、服务端 HTTP Session、CSRF 防护。
-- 后续阶段：WebSocket、Tiptap；尚未集成。
+- 富文本：Tiptap 3.33.1（Vue 3、StarterKit、ProseMirror）。
+- 权限共享：OWNER / EDITOR / VIEWER，按注册用户授权。
+- 文档同步：Spring 原生 WebSocket 提交后通知 + HTTP 拉取最新内容。
+- 后续阶段：历史版本等扩展；尚未集成。
 - 版本管理：Git
 
 ## 项目目录
@@ -28,7 +31,7 @@ dbclasshw/
 
 ## 当前开发状态
 
-M0、M1 和 M2 Task 1 已完成。当前支持注册、用户名/邮箱登录、Session 登录状态恢复、邮箱资料修改、退出及私人文档创建/列表/详情。文档按登录用户隔离；M1 旧文档保留并归属不可登录的迁移账号。原健康检查仍可用。详见 [阶段进度](PROGRESS.md)，功能边界以 [项目需求](PROJECT_SPEC.md) 为准。
+M0、M1 和 M2 Task 1–4 已完成。当前支持注册、用户名/邮箱登录、Session 登录状态恢复、邮箱资料修改、退出及私人富文本文档的创建、列表、详情、编辑、手动保存、删除和标题搜索。保存使用版本号检测冲突；在线用户可收到提交后更新通知，无草稿时自动同步，有草稿时保留并提示。文档默认私有，仅所有者和有效共享用户可访问；M1 旧文档保留并归属不可登录的迁移账号，未自动共享。原健康检查仍可用。详见 [阶段进度](PROGRESS.md)，功能边界以 [项目需求](PROJECT_SPEC.md) 为准。
 
 ## 环境要求
 
@@ -39,7 +42,7 @@ M0、M1 和 M2 Task 1 已完成。当前支持注册、用户名/邮箱登录、
 
 ## 启动与验证
 
-日常开启顺序：**MySQL → 后端 → 前端 → 浏览器**。已有数据库和本地配置无需每天重新初始化，已有前端依赖也无需每次重新安装。首次从 M1 升级时，必须先按下方数据库升级说明执行迁移。
+日常开启顺序：**MySQL → 后端 → 前端 → 浏览器**。已有数据库和本地配置无需每天重新初始化，已有前端依赖也无需每次重新安装。首次从 M1 或 M2 Task 1 升级时，必须先按下方数据库升级说明执行对应迁移。
 
 先确认 MySQL 服务运行。在本机 PowerShell 中查询实际服务名（不要直接假定为 `MySQL80`）：
 
@@ -76,7 +79,7 @@ npm run dev
 
 `npm install` 仅首次使用或依赖变更后需要执行；日常启动运行 `npm run dev` 即可。两个服务终端应保持打开，看到启动成功后再访问页面。
 
-访问 [前端首页](http://127.0.0.1:5173/)，顶部应显示“连接成功”和 `UP · Backend is running`；未登录时显示登录/注册表单，登录后加载当前用户的私人文档列表。后端默认使用端口 8080；Vite 固定使用 5173，端口占用时会报错。开发代理在 `frontend/vite.config.js` 中将 `/api` 转发至 `http://127.0.0.1:8080`，组件只使用相对路径。
+访问 [前端首页](http://127.0.0.1:5173/)，顶部应显示“连接成功”和 `UP · Backend is running`；未登录时显示登录/注册表单，登录后加载当前用户拥有和被共享的文档列表。后端默认使用端口 8080；Vite 固定使用 5173，端口占用时会报错。开发代理在 `frontend/vite.config.js` 中将 `/api` 转发至 `http://127.0.0.1:8080`，组件只使用相对路径。
 
 停止后端（对应终端按 `Ctrl+C`），在首页点击“重新检查”应显示连接失败；重新启动后端后再次点击可恢复。页面每次打开自动检查一次，之后通过按钮检查，不持续轮询。
 
@@ -159,13 +162,17 @@ mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u YOUR_LOCAL_USERNAM
 SOURCE sql/init.sql;
 ```
 
-**已有 M1 数据库**先停止后端写入、检查表结构与文档数量并备份，再执行独立增量脚本：
+**已有 M1 数据库**先停止后端写入、检查表结构与文档数量并备份，再按顺序执行三个独立增量脚本：
 
 ```sql
 SHOW CREATE TABLE dbclasshw.documents;
 SELECT COUNT(*) FROM dbclasshw.documents;
 SOURCE sql/migrate-m1-m2.sql;
+SOURCE sql/migrate-m2-richtext.sql;
+SOURCE sql/migrate-m2-sharing.sql;
 ```
+
+**已经完成 M2 Task 1 的数据库**依次执行 `SOURCE sql/migrate-m2-richtext.sql;` 和 `SOURCE sql/migrate-m2-sharing.sql;`。**已经完成 M2 Task 2 的数据库**只执行 `SOURCE sql/migrate-m2-sharing.sql;`。全新安装只执行最新版 `init.sql`。所有权迁移仅适用于旧 M1 或 M2 Task 1 结构；升级富文本后不要重新运行旧所有权迁移。
 
 备份可在 `backend/` 的另一个终端执行（先确保 `target/` 目录存在；该目录被 Git 忽略）：
 
@@ -174,12 +181,13 @@ New-Item -ItemType Directory -Force target
 mysqldump -h 127.0.0.1 -P 3306 -u YOUR_LOCAL_USERNAME -p --single-transaction --result-file=target/before-m2.sql dbclasshw
 ```
 
-应用不会自动运行 SQL。初始化和迁移均使用 InnoDB、utf8mb4；迁移脚本需要项目库建表、改表、创建/执行/删除存储过程权限。MySQL DDL 隐式提交，不能依赖完整事务回滚；出现脚本校验错误时先检查实际结构，不要删除表或强行继续。正常完成后可重复执行迁移；其只填补空的所有者，不重分配已有所有者。脚本只临时创建/删除本项目的 `migrate_m1_m2` 过程，不删除业务表或文档。
+应用不会自动运行 SQL。初始化和迁移均使用 InnoDB、utf8mb4；迁移脚本需要项目库建表、改表、创建/执行/删除存储过程权限。MySQL DDL 隐式提交，不能依赖完整事务回滚；出现脚本校验错误时先检查实际结构，不要删除表或强行继续。在各脚本对应的目标结构中可重复执行迁移；所有权脚本只填补空的所有者，不重分配已有所有者，富文本脚本仅在格式列缺失时新增该列。脚本只临时创建/删除本项目的 `migrate_m1_m2` 过程，不删除业务表或文档。
 
 当前结构：
 
 - `users`：自增 `id`、唯一用户名和邮箱、BCrypt `password_hash`、`enabled`、创建/更新时间。
-- `documents`：保留原 `id`、标题、正文、版本、时间；新增 `owner_id BIGINT NOT NULL` 和指向 `users.id` 的外键。
+- `documents`：保留原 `id`、标题、正文、版本、时间和所有者外键；富文本升级新增 `content_format VARCHAR(16) NOT NULL DEFAULT 'PLAIN_TEXT'`。旧内容不批量转换；`content` 保持 TEXT。
+- `document_permissions`：文档、用户外键，唯一 `(document_id,user_id)`，角色限制 EDITOR/VIEWER；删除文档时级联清理授权。
 - 专用账号 `__m1_migration__`：`enabled=FALSE`，密码字段为不可用于认证的禁用标记，不能登录，无公开默认密码。旧文档只归属此账号，不会自动赠予新注册用户；本阶段不提供认领或管理页面。
 
 升级后核对：
@@ -205,13 +213,15 @@ JOIN dbclasshw.users u ON d.owner_id=u.id ORDER BY d.id;
 | `POST /api/auth/logout` | 无正文，失效 Session 并清理 Cookie | 200 |
 | `GET /api/users/me` | 当前用户 ID、用户名、邮箱、注册时间 | 200 |
 | `PUT /api/users/me` | `{email}`，修改邮箱；用户名本阶段保持不变 | 200 |
-| `POST /api/documents` | `{title,content}`，所有者从当前 Session 获取 | 201 |
-| `GET /api/documents` | 当前用户拥有的文档数组 | 200 |
-| `GET /api/documents/{id}` | 当前用户的文档详情 | 200 |
+| `POST /api/documents` | `{title,content}`，content 为 Tiptap JSON 对象，所有者从当前 Session 获取 | 201 |
+| `GET /api/documents?keyword=...` | 自有和有效共享文档的标题搜索；空关键词返回全部可见文档，按 ID 排序 | 200 |
+| `GET /api/documents/{id}` | 当前用户可见的文档详情，包含 currentRole | 200 |
+| `PUT /api/documents/{id}` | `{title,content,version}`，原子乐观锁更新 | 200，返回新版本 |
+| `DELETE /api/documents/{id}` | 仅所有者，物理删除单篇 | 204，无正文 |
 
-用户名为 3–32 位英文字母、数字或下划线，必须以字母开头；邮箱格式有效且不超过 254 字符；密码 8–64 字符且 UTF-8 不超过 72 字节。用户名/邮箱由数据库唯一约束保证唯一，邮箱保存为小写。文档标题非空且不超过 255 字符，正文可空。未知字段（包括客户端指定的 ID、角色、所有者、版本或时间）会被拒绝。响应不包含密码哈希。
+用户名为 3–32 位英文字母、数字或下划线，必须以字母开头；邮箱格式有效且不超过 254 字符；密码 8–64 字符且 UTF-8 不超过 72 字节。用户名/邮箱由数据库唯一约束保证唯一，邮箱保存为小写。文档标题非空且不超过 255 字符，新建/保存正文必须是有效 Tiptap JSON（空正文用空段落文档）。未知字段（包括客户端指定的 ID、角色、所有者、版本或时间）会被拒绝。响应不包含密码哈希。
 
-未认证的受保护读取返回 401；输入错误 400；用户名/邮箱冲突 409；不存在或不属于当前用户的文档统一 404。缺失/无效 CSRF 的状态变更请求在安全过滤器中返回 403（包括尚未登录的请求），不会执行写入；携带有效 CSRF 但未认证的文档创建请求返回 401。数据库访问失败返回通用 503，不返回 SQL 或内部堆栈。
+未认证的受保护读取返回 401；输入错误 400；用户名/邮箱冲突 409；不存在或未授权的文档统一 404；可见文档上的越权操作返回 403。缺失/无效 CSRF 的状态变更请求在安全过滤器中返回 403（包括尚未登录的请求），不会执行写入；携带有效 CSRF 但未认证的文档创建请求返回 401。数据库访问失败返回通用 503，不返回 SQL 或内部堆栈。
 
 认证使用 Spring Security 6.5.x（由 Boot 管理）和服务端内存 Session，不使用 JWT。JSESSIONID 为 HttpOnly、SameSite=Lax、仅 Cookie 跟踪；登录时更换 Session ID，闲置 30 分钟过期。刷新页面保持登录；后端进程重启后需要重新登录，MySQL 文档数据不受影响。当前是本机 HTTP 开发环境，生产 HTTPS 的安全 Cookie 与部署配置留待对应阶段。
 
@@ -232,7 +242,8 @@ Invoke-RestMethod "$base/api/auth/login" -Method Post -WebSession $webSession -H
 # Login changes both session ID and CSRF token; keep the same WebSession cookie jar.
 $csrf = Invoke-RestMethod "$base/api/auth/csrf" -WebSession $webSession
 $headers = @{ $csrf.headerName = $csrf.token }
-$body = @{ title = 'My Private Document'; content = 'Hello Database!' } | ConvertTo-Json
+$content = @{ type = 'doc'; content = @(@{ type = 'paragraph'; content = @(@{ type = 'text'; text = 'Hello Database!' }) }) }
+$body = @{ title = 'My Private Document'; content = $content } | ConvertTo-Json -Depth 20
 Invoke-RestMethod "$base/api/documents" -Method Post -WebSession $webSession -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
 Invoke-RestMethod "$base/api/documents" -WebSession $webSession
 Invoke-RestMethod "$base/api/auth/logout" -Method Post -WebSession $webSession -Headers $headers
@@ -263,4 +274,133 @@ try {
 
 真实用例不自动迁移现有库，也不清空数据；创建唯一标记的测试用户和私人文档。新安装一致性用例另建 `dbclasshw_m2_verify_<随机后缀>` 测试库，逐项比较列与约束，保留该测试库而不自动删除。报告在 `backend/target/surefire-reports/`。
 
-本次前端构建及 Maven 测试/打包通过，启用真实 MySQL 后 6 项测试无失败或跳过；覆盖重复用户名/邮箱、BCrypt、错误密码、Session fixation、登录/退出 Token 刷新、旧会话失效、无效输入、A/B 隔离、数据库约束和重新启动应用后登录读取持久化文档。真实 Edge 完成注册 → 登录 → 创建 → 刷新 → 查看 → 修改邮箱 → 退出 → 邮箱重新登录，并验证 HttpOnly、旧会话失效、会话过期回登录及双用户隔离。临时浏览器脚本和截图在忽略的 `backend/target/browser-check/`，未新增项目级浏览器框架依赖。
+M2 Task 1 验收时，前端构建及 Maven 测试/打包通过，启用真实 MySQL 后 6 项测试无失败或跳过；覆盖重复用户名/邮箱、BCrypt、错误密码、Session fixation、登录/退出 Token 刷新、旧会话失效、无效输入、A/B 隔离、数据库约束和重新启动应用后登录读取持久化文档。真实 Edge 完成注册 → 登录 → 创建 → 刷新 → 查看 → 修改邮箱 → 退出 → 邮箱重新登录，并验证 HttpOnly、旧会话失效、会话过期回登录及双用户隔离。临时浏览器脚本和截图在忽略的 `backend/target/browser-check/`，未新增项目级浏览器框架依赖。
+
+
+## 富文本编辑、版本冲突与兼容
+
+登录后点击“新建文档”，输入标题并用工具栏设置段落、加粗、斜体、标题、无序/有序列表，点击“创建文档”。打开已有文档时默认只读，点击“编辑文档”后修改，再点击“保存文档”；保存期间禁止重复提交。保存成功返回只读状态并展示最新版本，保存失败保留本地标题和正文。切换、新建、取消编辑、重新加载或退出登录遇到未保存修改时需要确认；关闭/刷新页面也有浏览器离开提醒。
+
+左侧按标题搜索仅搜索自己拥有或当前被共享的文档，空关键词返回全部，`%`、`_`、`!` 按字面量处理而不是用户可控制的 LIKE 通配符。删除需要确认，只删除当前用户的目标文档；成功后清理详情并更新列表。未来引入共享或历史版本表时，需要同时设计关联数据删除策略，本阶段不创建这些表。
+
+新建和更新请求示例：
+
+```json
+{
+  "title": "My rich document",
+  "content": {
+    "type": "doc",
+    "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Hello", "marks": [{ "type": "bold" }] }] }]
+  },
+  "version": 1
+}
+```
+
+`version` 仅 PUT 必填，POST 不接受客户端指定版本。响应沿用 `content` 字符串字段，并增加 `contentFormat`：`TIPTAP_JSON` 时 content 是规范 JSON 的序列化字符串；`PLAIN_TEXT` 时是历史原文。前端只按明确的格式标记解析，不根据开头是否为 `{` 猜测；历史文本按换行构建安全的段落/文本节点，绝不当作 HTML。旧文档编辑后保存才转为 JSON，其他旧数据保持不变。
+
+后端白名单只接受本阶段启用的 doc、paragraph、text、heading（1–3）、bulletList、orderedList、listItem、hardBreak 和 bold/italic 标记，拒绝未知节点、任意 HTML 属性和链接。规范 JSON 的 UTF-8 序列化大小最多 60,000 字节、嵌套深度最多 24、节点数最多 4,000；超限或结构错误返回 400。未启用图片、链接、代码等复杂扩展。前端使用 Tiptap 渲染，不通过 `v-html` 注入原始内容；编辑器按需加载，并在组件销毁时释放。
+
+更新先在事务内锁定文档行并读取当前角色，只有 OWNER/EDITOR 可以继续；SQL 保留 `id`、`version` 与 OWNER/EDITOR 授权条件。权限无效返回 404/403，授权有效但原子 UPDATE 影响 0 行返回 409：
+
+```json
+{"code":"DOCUMENT_VERSION_CONFLICT","message":"Document changed; reload before saving"}
+```
+
+冲突不覆盖数据库，也不自动提升本地版本强制重试；页面保留当前草稿，提供“重新加载最新版本”，放弃本地修改前需要确认。本阶段不自动合并、不自动保存。
+
+M2 Task 2 实测：新增格式列的迁移及重复执行成功，迁移前 9 篇文档的 ID、所有者、标题、正文、版本与时间不变；新安装与升级的列/约束一致。前端构建通过，启用真实 MySQL 的 Maven 测试及打包通过，共 9 项测试无失败或跳过。真实 MySQL 验证 CRUD、富文本回读、搜索通配符转义、旧文本转换、CSRF 和所有者隔离；顺序旧版本提交及同时提交均验证一成功、一 409，版本只递增一次。真实 Edge 验证格式工具栏、创建/编辑/保存/刷新/搜索/删除、网络失败草稿保留、未保存提醒、双标签页冲突和安全重载、旧文本 HTML 字符串安全显示与转换、退出后 401。测试只删除本用例创建的文档，不清空已有业务数据。
+
+
+## 文档共享与权限（M2 Task 3）
+
+从 M2 Task 2 升级时停止后端，使用已有 MySQL 客户端执行 `SOURCE sql/migrate-m2-sharing.sql;`，然后重新启动后端；前端启动命令不变。迁移只创建 `document_permissions`，不会改写用户或文档，也不会给旧文档自动授权。新安装的 `init.sql` 已包含同一张权限表。重复执行不会清空既有授权；已有同名表结构不一致时先检查，不要删除重建。
+
+权限表包含自增 ID、`document_id`、`user_id`、`role`、创建/更新时间，均为 NOT NULL。`(document_id,user_id)` 唯一索引支持按文档查成员，另有 user_id 索引；CHECK 约束只允许 EDITOR/VIEWER，两个外键均有效，文档删除时授权通过 `ON DELETE CASCADE` 清理。OWNER 仅由 documents.owner_id 表示，共享 API 不生成 OWNER 记录，也不支持转移所有权。
+
+| 操作 | OWNER | EDITOR | VIEWER |
+| --- | --- | --- | --- |
+| 查看、列表、搜索 | 允许 | 允许 | 允许 |
+| 编辑与保存 | 允许 | 允许 | 禁止 |
+| 删除文档 | 允许 | 禁止 | 禁止 |
+| 查看成员、添加/修改/撤销共享 | 允许 | 禁止 | 禁止 |
+
+所有请求仍须登录；状态变更仍须携带 CSRF。未授权文档返回 404，已授权读者越权写入/管理返回 403。响应中 `currentRole` 为当前请求用户的有效角色，不接受客户端伪造该字段。
+
+| 方法与路径 | 请求 | 成功响应 |
+| --- | --- | --- |
+| `POST /api/documents/{id}/permissions` | `{ "login": "用户名或邮箱", "role": "EDITOR" }` | 201，安全的成员列表 |
+| `GET /api/documents/{id}/permissions` | 无 | 200，成员列表 |
+| `PUT /api/documents/{id}/permissions/{userId}` | `{ "role": "VIEWER" }` | 200，更新后的成员列表 |
+| `DELETE /api/documents/{id}/permissions/{userId}` | 无 | 204 |
+
+成员列表只含授权 ID、用户 ID、用户名、邮箱、角色和时间，不含密码或哈希。目标用户须存在且启用；自己、OWNER 角色或非法字段返回 400；重复共享返回 409 / `SHARING_CONFLICT`；授权记录不存在返回 404。角色更新与撤销立即影响后续 API 检查，不需要重新登录。
+
+浏览器操作：A 登录并创建文档，点击“共享文档”，输入 B 的用户名或邮箱并选择 EDITOR，添加共享；也可给 C 添加 VIEWER。B/C 刷新列表，在“共享给我的”中打开文档；列表显示所属类型与角色。B 可编辑保存，A 无本地草稿时自动看到更新；C 只读且无编辑、删除、共享管理按钮。A 在成员列表选择角色即可修改，撤销需要确认。B 编辑期间若被降级或撤销，下一次保存会被后端拒绝并保留本地草稿，不自动丢弃。已加载的内容不会被远程擦除，当前已增加提交后的 WebSocket 通知与安全重载，连接失败时仍可手动刷新/重新加载。
+
+并发策略：文档更新、删除以及共享管理都在事务内先对相同文档行 `SELECT ... FOR UPDATE`，再按固定顺序读取/锁定权限；保存 SQL 同时检查版本与有效编辑授权。撤销/降级持有文档锁到提交，排队的保存得到锁后重新校验最新权限，因此不会在权限变更已提交后继续使用旧权限写入。若保存先获得锁并提交，它按合法顺序发生在撤销之前；不能以 HTTP 响应到达顺序判断事务先后。不使用分布式锁或进程级权限缓存。
+
+本次真实迁移和重复执行后，原有 21 个用户、13 篇文档所有字段不变。启用真实 MySQL 的 Maven 验证共 11 项测试通过，无失败或跳过，覆盖角色矩阵、重复授权、CHECK/唯一/外键约束、级联清理、OWNER/EDITOR 同版本冲突，以及权限变更事务持锁时排队的 HTTP 保存请求在提交后被拒绝。新安装与升级的列和约束仍比对一致。真实 Edge 三个独立 Session 验证共享界面、编辑者保存、所有者读取更新、查看者只读、共享搜索、降级/撤销后的失败与草稿保留；既有认证、CSRF、资料、富文本 CRUD、旧文本兼容及搜索回归通过。
+
+
+## WebSocket 文档同步（M2 Task 4）
+
+采用 Spring 原生 WebSocket，不使用 STOMP 或消息代理。**HTTP PUT 唯一负责持久化，WebSocket 只通知，HTTP GET 获取权威内容**。本次没有业务表迁移，也不需要额外数据库、Redis 或消息队列；运行和本地配置步骤保持不变。更新后端依赖后重新构建/启动，并重启 Vite 使代理配置生效；`/api` 开发代理已启用 `ws: true`。
+
+登录并打开文档时，前端按当前页面的 host/protocol 连接 `/api/ws/documents`（HTTP 对应 ws，HTTPS 对应 wss），浏览器自动携带 HttpOnly Session Cookie，URL 不携带密码、Session ID 或认证 Token。每个工作台只订阅当前文档，切换、退出和卸载会清理旧连接。
+
+握手复用 Spring Security 认证，同时检查 Origin；默认只接受 `http://127.0.0.1:5173`、`http://localhost:5173` 及同主机名的 8080 地址。其他本地地址需要通过 `app.websocket.allowed-origins` 显式配置，不使用通配符，也不关闭 HTTP CSRF。原生 WebSocket 不承接任何内容写入，Origin 白名单负责防止跨站建立业务连接。
+
+客户端可发送的消息仅有：
+
+```json
+{"type":"SUBSCRIBE","documentId":123}
+```
+
+```json
+{"type":"UNSUBSCRIBE"}
+```
+
+```json
+{"type":"PING"}
+```
+
+服务端验证文档的当前 OWNER/EDITOR/VIEWER 权限后返回 `SUBSCRIBED`，包含 documentId、version 和 currentRole。无权限、过期会话、非法消息或伪造 `DOCUMENT_UPDATED` 会关闭连接，不发送正文或未授权文档元数据。PING 只用于检测通知通道，不能延长 HTTP Session 的有效期。
+
+保存成功提交后的通知示例：
+
+```json
+{
+  "type":"DOCUMENT_UPDATED",
+  "documentId":123,
+  "version":8,
+  "updatedAt":"2026-11-13T18:00:00",
+  "currentRole":"EDITOR",
+  "actorId":42
+}
+```
+
+actorId 为可选字段；并发通知可能合并为数据库中已提交的最新版本，不把旧操作错误标为最新修改者。通知不包含富文本正文。重复、乱序或已处理版本由客户端忽略。
+
+服务层在事务内发布内部事件，`@TransactionalEventListener` 仅在提交成功后处理；回滚、输入错误、403/404 或 409 不广播成功更新。发送在独立事务中重新锁定文档并校验实时权限，与共享撤销/降级使用同一文档行锁，避免“先查权限再无约束广播”的竞态。消息发送失败不会把已提交的 HTTP 保存改报失败；HTTP 查询与版本号始终是正确性依据。
+
+角色变更后，仍有读取权限的订阅者收到 `ACCESS_CHANGED` 并核对 HTTP 最新状态；被撤销用户或文档删除时只关闭相关连接，不发送删除后不可见的文档数据。退出通过关闭关联连接与 Session 销毁监听立即清理；闲置过期还会在每次发送/消息处理以及每 5 秒巡检时检查。已经加载到浏览器的内容不会被远程擦除，但后续请求必须重新授权。
+
+前端同步规则：
+
+- 无未保存修改：收到新版本后 GET，完成时再次确认当前文档及 dirty 状态，再更新标题、正文、版本和基线，不制造假 dirty。
+- 有草稿：保留标题、正文和读取时的版本号，只提示远端更新；重新加载必须确认放弃修改。保存旧版本仍返回 409，不自动合并或强制覆盖。
+- 权限降级或失效：保留草稿，更新权限状态并禁用不允许的保存；HTTP 后端继续独立校验。
+- 通道异常：HTTP 仍可读取和保存；自动重试最多连续 5 次，退避为 0.5、1、2、4、8 秒。成功订阅后重置计数，也可点击“重连实时通知”。
+- 初次订阅、重连成功和页面重新获得焦点时重新 GET 核对，补偿断线期间遗漏；有草稿时仍不替换内容。切换文档及过期 HTTP 响应有序号保护。
+
+手动验收：
+
+1. 启动 MySQL、后端和前端，用两个独立浏览器环境登录 A、B；A 创建文档并共享 B 为 EDITOR。
+2. 两端打开同一文档，确认“实时连接正常”。A 编辑保存，B 无草稿时应自动显示新内容；B 保存后 A 同样更新。
+3. B 修改但不保存，A 再保存；B 应提示远端更新且本地内容不变，B 保存得到 409；只有确认重新加载才丢弃草稿。
+4. 中断 B 的业务 WebSocket，验证 HTTP 仍可用；A 保存后恢复通道，B 无草稿时补查更新，有草稿时保留。不要将 Vite 热更新通道误当业务连接。
+5. A 降级/撤销 B，检查 B 后续保存被拒绝或禁用、撤销后订阅关闭；退出或删除文档后连接也失效。VIEWER 可接收更新，但不能保存。
+
+使用原 README 中的 Maven 真库开关执行测试。当前前端构建和 Maven 测试/打包通过；13 项测试无失败或跳过。真实 MySQL + 原生 WebSocket 验证提交前无消息、提交后版本通知、回滚/409 无通知、非法 Origin、未登录/未授权订阅、伪造消息、撤销/降级、退出、Session 过期、删除及订阅切换。真实 Edge 三个独立会话验证双向自动同步、VIEWER 接收、在线/断线草稿保护及 409、自动重连、重连补查、切换隔离和权限失效；实际版本递增至 8，草稿未覆盖服务器内容。
+
+边界：单机、内存连接关系、尽力通知，不持久化事件；重连通过 HTTP 补查，不保证逐事件回放。不支持逐字符协作、OT/CRDT、自动保存、自动合并、离线队列或多节点部署。服务重启后连接丢失且需重新登录；本地未保存草稿只在当前页面内存中，不作为持久化备份。

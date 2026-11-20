@@ -36,6 +36,16 @@ public class DocumentExceptionHandler {
     @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.CONFLICT)
     public ApiError conflict() { return new ApiError("ACCOUNT_CONFLICT", "Username or email already in use"); }
 
+    @ExceptionHandler(DocumentVersionConflictException.class)
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError versionConflict() {
+        return new ApiError("DOCUMENT_VERSION_CONFLICT", "Document changed; reload before saving");
+    }
+
+    @ExceptionHandler(SharingConflictException.class)
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.CONFLICT)
+    public ApiError sharingConflict() { return new ApiError("SHARING_CONFLICT", "User already has a document permission"); }
+
     @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
     @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ApiError authenticationFailed() {
