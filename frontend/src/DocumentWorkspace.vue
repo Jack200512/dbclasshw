@@ -3,6 +3,8 @@ import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, reactive, r
 import { ElAlert, ElButton, ElCard, ElEmpty, ElForm, ElFormItem, ElInput, ElMessageBox } from 'element-plus'
 import { requestJson } from './api'
 import SharingPanel from './SharingPanel.vue'
+import HistoryPanel from './HistoryPanel.vue'
+import { bodyOf } from './documentContent'
 import { createDocumentChannel } from './documentChannel'
 const RichTextEditor = defineAsyncComponent(() => import('./RichTextEditor.vue'))
 
@@ -30,6 +32,7 @@ let syncRequest = 0
 let pendingSync = null
 const channel = createDocumentChannel(checkRemote, value => { realtimeStatus.value = value })
 const showSharing = ref(false)
+const showHistory = ref(false)
 const listScope = ref('all')
 const visibleDocuments = computed(() => documents.value.filter(item => listScope.value === 'all' || (listScope.value === 'mine' ? item.currentRole === 'OWNER' : item.currentRole !== 'OWNER')))
 const canEdit = computed(() => mode.value === 'create' || ['OWNER', 'EDITOR'].includes(document.value?.currentRole))
@@ -83,14 +86,6 @@ watch(busy, value => { if (!value && pendingSync) { const event = pendingSync; p
 function checkOnFocus() { if (document.value) checkRemote({ type: 'RECHECK', documentId: document.value.id }) }
 
 function formatTime(value) { return value ? value.replace('T', ' ') : '—' }
-function bodyOf(row) {
-  if (row.contentFormat === 'TIPTAP_JSON') return JSON.parse(row.content)
-  if (row.contentFormat !== 'PLAIN_TEXT') throw new Error('无法识别的正文格式。')
-  // Explicit format marker, never interpret historical strings as HTML or guessed JSON.
-  return { type: 'doc', content: (row.content || '').split(/\r?\n/).map(text => ({
-    type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}),
-  })) }
-}
 function setDraft(row) {
   form.title = row.title
   form.content = bodyOf(row)
@@ -125,6 +120,7 @@ async function openDocument(id, skipPrompt = false) {
   const request = ++detailRequest
   mode.value = 'detail'
   showSharing.value = false
+  showHistory.value = false
   editing.value = false
   selectedId.value = id
   document.value = null
@@ -147,6 +143,7 @@ async function newDocument() {
   document.value = null
   mode.value = 'create'
   showSharing.value = false
+  showHistory.value = false
   editing.value = true
   form.title = ''
   form.content = emptyContent()
@@ -184,6 +181,38 @@ async function cancelEdit() {
   if (busy.value || !await mayLeave()) return
   if (document.value) { setDraft(document.value); editing.value = false }
   else { mode.value = 'welcome'; editing.value = false }
+}
+async function restoreVersion(number) {
+  if (!document.value || busy.value || !canEdit.value) return
+  const id = document.value.id
+  const version = document.value.version
+  busy.value = true
+  ++syncRequest
+  try {
+    await ElMessageBox.confirm(
+      `恢复 v${number} 将生成新的当前版本并保留全部历史。${dirty.value ? '当前有未保存草稿，成功恢复会放弃这些修改。' : ''}确定恢复？`,
+      '恢复历史版本', { confirmButtonText: '确认恢复', cancelButtonText: '取消', type: 'warning' },
+    )
+    actionError.value = ''
+    notice.value = ''
+    const saved = await requestJson(`/api/documents/${id}/versions/${number}/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
+    })
+    if (document.value?.id !== id) return
+    setDraft(saved)
+    document.value = saved
+    editing.value = false
+    conflict.value = false
+    showHistory.value = false
+    remoteNotice.value = ''
+    notice.value = `已恢复为新版本 v${saved.version}，历史记录已保留。`
+    await loadDocuments()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    conflict.value = error.code === 'DOCUMENT_VERSION_CONFLICT'
+    actionError.value = `${error.message} 本地草稿已保留。`
+    showHistory.value = false
+  } finally { busy.value = false }
 }
 async function deleteDocument() {
   if (!document.value || busy.value || document.value.currentRole !== 'OWNER') return
@@ -254,11 +283,13 @@ onBeforeUnmount(() => { ++detailRequest; ++listRequest; ++syncRequest; channel.s
             <el-button v-else-if="canEdit" :disabled="busy" @click="editing = true">编辑文档</el-button>
             <el-button v-if="editing" :disabled="busy" @click="cancelEdit">取消编辑</el-button>
             <el-button v-if="document" :disabled="busy" @click="openDocument(document.id)">{{ conflict ? '重新加载最新版本' : '重新加载' }}</el-button>
+            <el-button v-if="document" :disabled="busy" @click="showHistory = true">历史版本</el-button>
             <el-button v-if="document?.currentRole === 'OWNER'" type="danger" :disabled="busy" @click="deleteDocument">删除文档</el-button>
             <el-button v-if="document?.currentRole === 'OWNER'" :disabled="busy" @click="showSharing = !showSharing">共享文档</el-button>
           </div>
         </el-form>
         <SharingPanel v-if="showSharing && document?.currentRole === 'OWNER'" :key="document.id" :document-id="document.id" />
+        <HistoryPanel v-if="showHistory && document" :key="document.id" :document-id="document.id" :current-version="document.version" :current-role="document.currentRole" :busy="busy" @close="showHistory = false" @restore="restoreVersion" />
       </section>
       <el-empty v-else description="从左侧选择文档，或创建一篇新文档。" />
     </el-card>

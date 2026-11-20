@@ -45,10 +45,24 @@ class SchemaMigrationMySqlTest {
                     SELECT d.id,u.username,u.enabled,d.content_format FROM documents d
                     JOIN users u ON u.id=d.owner_id
                     """)).containsExactly(List.of("42","__m1_migration__","0","PLAIN_TEXT"));
+            run(connection,"migrate-m3-history.sql",upgraded);
+            var baseline=rows(connection,"SELECT * FROM document_versions ORDER BY id");
+            run(connection,"migrate-m3-history.sql",upgraded);
+            assertThat(rows(connection,"SELECT * FROM document_versions ORDER BY id")).isEqualTo(baseline);
+            assertThat(rows(connection,"SELECT id,title,content,version,created_at,updated_at FROM documents")).isEqualTo(original);
+            assertThat(rows(connection,"SELECT document_id,version_number,change_type,content_format FROM document_versions"))
+                    .containsExactly(List.of("42","7","BASELINE","PLAIN_TEXT"));
+            try(var statement=connection.createStatement()) {
+                statement.execute("UPDATE documents SET title='mismatch',updated_at=updated_at WHERE id=42");
+                assertThat(org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                        ()->run(connection,"migrate-m3-history.sql",upgraded)).getMessage()).contains("snapshot mismatch");
+                assertThat(rows(connection,"SELECT * FROM document_versions ORDER BY id")).isEqualTo(baseline);
+                statement.execute("UPDATE documents SET title='M1 migration fixture',updated_at=updated_at WHERE id=42");
+            }
             run(connection,"init.sql",fresh);
             // Compare definitions, index columns, FK targets/actions and CHECK expression,
             // rather than assuming matching constraint names imply matching behavior.
-            for (String table:List.of("users","documents","document_permissions")) {
+            for (String table:List.of("users","documents","document_permissions","document_versions")) {
                 String a=rows(connection,"SHOW CREATE TABLE "+upgraded+"."+table).get(0).get(1);
                 String b=rows(connection,"SHOW CREATE TABLE "+fresh+"."+table).get(0).get(1);
                 assertThat(a.replaceAll(" AUTO_INCREMENT=\\d+", "")).isEqualTo(b.replaceAll(" AUTO_INCREMENT=\\d+", ""));

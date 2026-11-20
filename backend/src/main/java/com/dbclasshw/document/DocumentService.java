@@ -10,14 +10,16 @@ public class DocumentService {
     private final DocumentMapper mapper;
     private final RichTextContent richText;
     private final PermissionMapper permissions;
+    private final DocumentVersionMapper versions;
     private final org.springframework.context.ApplicationEventPublisher events;
 
     public DocumentService(DocumentMapper mapper, RichTextContent richText, PermissionMapper permissions,
-                           org.springframework.context.ApplicationEventPublisher events) {
+                           org.springframework.context.ApplicationEventPublisher events, DocumentVersionMapper versions) {
         this.mapper = mapper;
         this.richText = richText;
         this.permissions = permissions;
         this.events = events;
+        this.versions = versions;
     }
 
     @Transactional
@@ -27,7 +29,9 @@ public class DocumentService {
         document.setContent(richText.serialize(request.content()));
         document.setOwnerId(ownerId);
         mapper.insert(document);
-        return findById(document.getId(), ownerId);
+        Document saved=findById(document.getId(), ownerId);
+        versions.insert(saved,ownerId,"CREATED",null);
+        return saved;
     }
 
     public List<Document> findAll(long ownerId, String keyword) {
@@ -51,13 +55,53 @@ public class DocumentService {
         document.setOwnerId(ownerId);
         document.setTitle(request.title());
         document.setContent(richText.serialize(request.content()));
+        document.setContentFormat("TIPTAP_JSON");
         document.setVersion(request.version());
         if (mapper.update(document,ownerId)==0) {
             findById(id,ownerId);
             throw new DocumentVersionConflictException();
         }
         Document saved=findById(id,ownerId);
+        versions.insert(saved,ownerId,"UPDATED",null);
         events.publishEvent(new com.dbclasshw.sync.DocumentEvent("DOCUMENT_UPDATED",id,saved.getVersion(),saved.getUpdatedAt(),ownerId,null));
+        return saved;
+    }
+
+    @Transactional
+    public List<DocumentVersion> versions(long id,long userId) {
+        lockAccessible(id,userId);
+        return versions.list(id);
+    }
+
+    @Transactional
+    public DocumentVersion version(long id,long userId,int number) {
+        lockAccessible(id,userId);
+        return requiredVersion(id,number);
+    }
+
+    private DocumentVersion requiredVersion(long id,int number) {
+        DocumentVersion result=versions.find(id,number);
+        if(result==null) throw new DocumentNotFoundException();
+        return result;
+    }
+
+    @Transactional
+    public Document restore(long id,long userId,int number,int expectedVersion) {
+        Document current=lockAccessible(id,userId);
+        if(!"OWNER".equals(current.getCurrentRole()) && !"EDITOR".equals(current.getCurrentRole())) forbidden();
+        if(current.getVersion()!=expectedVersion) throw new DocumentVersionConflictException();
+        DocumentVersion source=requiredVersion(id,number);
+        if("TIPTAP_JSON".equals(source.contentFormat)) {
+            try { richText.serialize(new com.fasterxml.jackson.databind.ObjectMapper().readTree(source.content)); }
+            catch(com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalArgumentException("Invalid stored content"); }
+        } else if(!"PLAIN_TEXT".equals(source.contentFormat)) throw new IllegalArgumentException("Invalid stored format");
+        current.setTitle(source.title);
+        current.setContent(source.content);
+        current.setContentFormat(source.contentFormat);
+        if(mapper.update(current,userId)==0) throw new DocumentVersionConflictException();
+        Document saved=findById(id,userId);
+        versions.insert(saved,userId,"RESTORED",number);
+        events.publishEvent(new com.dbclasshw.sync.DocumentEvent("DOCUMENT_UPDATED",id,saved.getVersion(),saved.getUpdatedAt(),userId,null));
         return saved;
     }
 

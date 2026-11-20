@@ -40,3 +40,24 @@ CREATE TABLE IF NOT EXISTS document_permissions (
     CONSTRAINT fk_permissions_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
     CONSTRAINT fk_permissions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS document_versions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    document_id BIGINT NOT NULL,
+    version_number INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    content_format VARCHAR(16) NOT NULL,
+    editor_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    change_type VARCHAR(8) NOT NULL,
+    source_version INT,
+    CONSTRAINT uk_versions_document_number UNIQUE (document_id,version_number),
+    INDEX idx_versions_editor (editor_id),
+    CONSTRAINT ck_versions_number CHECK (version_number > 0),
+    CONSTRAINT ck_versions_format CHECK (content_format IN ('PLAIN_TEXT','TIPTAP_JSON')),
+    CONSTRAINT ck_versions_change CHECK (change_type IN ('CREATED','UPDATED','RESTORED','BASELINE')),
+    CONSTRAINT ck_versions_source CHECK ((change_type='RESTORED' AND source_version IS NOT NULL AND source_version > 0 AND source_version < version_number) OR (change_type<>'RESTORED' AND source_version IS NULL)),
+    CONSTRAINT fk_versions_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    CONSTRAINT fk_versions_editor FOREIGN KEY (editor_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

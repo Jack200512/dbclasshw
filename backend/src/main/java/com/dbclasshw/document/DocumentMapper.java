@@ -25,7 +25,7 @@ public interface DocumentMapper {
     Document findById(@org.apache.ibatis.annotations.Param("id") long id,
                       @org.apache.ibatis.annotations.Param("userId") long userId);
 
-    @org.apache.ibatis.annotations.Update("UPDATE documents SET title=#{document.title},content=#{document.content},content_format='TIPTAP_JSON',version=version+1 WHERE id=#{document.id} AND version=#{document.version} AND (owner_id=#{userId} OR EXISTS (SELECT 1 FROM document_permissions p WHERE p.document_id=documents.id AND p.user_id=#{userId} AND p.role='EDITOR'))")
+    @org.apache.ibatis.annotations.Update("UPDATE documents SET title=#{document.title},content=#{document.content},content_format=#{document.contentFormat},version=version+1 WHERE id=#{document.id} AND version=#{document.version} AND (owner_id=#{userId} OR EXISTS (SELECT 1 FROM document_permissions p WHERE p.document_id=documents.id AND p.user_id=#{userId} AND p.role='EDITOR'))")
     int update(@org.apache.ibatis.annotations.Param("document") Document document,
                @org.apache.ibatis.annotations.Param("userId") long userId);
 

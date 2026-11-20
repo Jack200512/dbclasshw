@@ -10,7 +10,7 @@
 - 富文本：Tiptap 3.33.1（Vue 3、StarterKit、ProseMirror）。
 - 权限共享：OWNER / EDITOR / VIEWER，按注册用户授权。
 - 文档同步：Spring 原生 WebSocket 提交后通知 + HTTP 拉取最新内容。
-- 后续阶段：历史版本等扩展；尚未集成。
+- 历史版本：完整快照、只读预览及产生新版本的安全恢复。自动保存尚未实现。
 - 版本管理：Git
 
 ## 项目目录
@@ -31,7 +31,7 @@ dbclasshw/
 
 ## 当前开发状态
 
-M0、M1 和 M2 Task 1–5 已完成，P0 MVP 集成验收通过，可进入 M3 范围讨论。当前支持注册、用户名/邮箱登录、Session 登录状态恢复、邮箱资料修改、退出及私人富文本文档的创建、列表、详情、编辑、手动保存、删除和标题搜索。保存使用版本号检测冲突；在线用户可收到提交后更新通知，无草稿时自动同步，有草稿时保留并提示。文档默认私有，仅所有者和有效共享用户可访问；M1 旧文档保留并归属不可登录的迁移账号，未自动共享。原健康检查仍可用。详见 [阶段进度](PROGRESS.md)，功能边界以 [项目需求](PROJECT_SPEC.md) 为准。
+M0、M1、M2 和 M3 Task 1 已完成，P0 MVP 保持通过，新增文档历史版本与恢复。当前支持注册、用户名/邮箱登录、Session 登录状态恢复、邮箱资料修改、退出及私人富文本文档的创建、列表、详情、编辑、手动保存、删除和标题搜索。保存使用版本号检测冲突；在线用户可收到提交后更新通知，无草稿时自动同步，有草稿时保留并提示。文档默认私有，仅所有者和有效共享用户可访问；M1 旧文档保留并归属不可登录的迁移账号，未自动共享。原健康检查仍可用。详见 [阶段进度](PROGRESS.md)，功能边界以 [项目需求](PROJECT_SPEC.md) 为准。
 
 ## 环境要求
 
@@ -42,7 +42,7 @@ M0、M1 和 M2 Task 1–5 已完成，P0 MVP 集成验收通过，可进入 M3 �
 
 ## 启动与验证
 
-日常开启顺序：**MySQL → 后端 → 前端 → 浏览器**。已有数据库和本地配置无需每天重新初始化，已有前端依赖也无需每次重新安装。首次从 M1 或 M2 Task 1 升级时，必须先按下方数据库升级说明执行对应迁移。
+日常开启顺序：**MySQL → 后端 → 前端 → 浏览器**。已有数据库和本地配置无需每天重新初始化，已有前端依赖也无需每次重新安装。首次从旧版本升级时，必须先按下方数据库升级说明执行对应迁移，包括 M3 历史版本迁移。
 
 先确认 MySQL 服务运行。在本机 PowerShell 中查询实际服务名（不要直接假定为 `MySQL80`）：
 
@@ -162,7 +162,7 @@ mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u YOUR_LOCAL_USERNAM
 SOURCE sql/init.sql;
 ```
 
-**已有 M1 数据库**先停止后端写入、检查表结构与文档数量并备份，再按顺序执行三个独立增量脚本：
+**已有 M1 数据库**先停止后端写入、检查表结构与文档数量并备份，再按顺序执行四个独立增量脚本：
 
 ```sql
 SHOW CREATE TABLE dbclasshw.documents;
@@ -170,9 +170,10 @@ SELECT COUNT(*) FROM dbclasshw.documents;
 SOURCE sql/migrate-m1-m2.sql;
 SOURCE sql/migrate-m2-richtext.sql;
 SOURCE sql/migrate-m2-sharing.sql;
+SOURCE sql/migrate-m3-history.sql;
 ```
 
-**已经完成 M2 Task 1 的数据库**依次执行 `SOURCE sql/migrate-m2-richtext.sql;` 和 `SOURCE sql/migrate-m2-sharing.sql;`。**已经完成 M2 Task 2 的数据库**只执行 `SOURCE sql/migrate-m2-sharing.sql;`。全新安装只执行最新版 `init.sql`。所有权迁移仅适用于旧 M1 或 M2 Task 1 结构；升级富文本后不要重新运行旧所有权迁移。
+**已完成 M2 Task 1** 依次执行 richtext、sharing、history 三个增量脚本；**已完成 M2 Task 2** 执行 sharing、history；**已完成 M2 Task 3–5** 只执行 history。全新安装只执行最新版 `init.sql`。所有权迁移仅适用于旧 M1 或 M2 Task 1 结构；升级富文本后不要重新运行旧所有权迁移。
 
 备份可在 `backend/` 的另一个终端执行（先确保 `target/` 目录存在；该目录被 Git 忽略）：
 
@@ -283,7 +284,7 @@ M2 Task 1 验收时，前端构建及 Maven 测试/打包通过，启用真实 M
 
 登录后点击“新建文档”，输入标题并用工具栏设置段落、加粗、斜体、标题、无序/有序列表，点击“创建文档”。打开已有文档时默认只读，点击“编辑文档”后修改，再点击“保存文档”；保存期间禁止重复提交。保存成功返回只读状态并展示最新版本，保存失败保留本地标题和正文。切换、新建、取消编辑、重新加载或退出登录遇到未保存修改时需要确认；关闭/刷新页面也有浏览器离开提醒。
 
-左侧按标题搜索仅搜索自己拥有或当前被共享的文档，空关键词返回全部，`%`、`_`、`!` 按字面量处理而不是用户可控制的 LIKE 通配符。删除需要确认，只删除当前用户的目标文档；成功后清理详情并更新列表。现有共享权限通过外键级联清理；尚未引入历史版本表。
+左侧按标题搜索仅搜索自己拥有或当前被共享的文档，空关键词返回全部，`%`、`_`、`!` 按字面量处理而不是用户可控制的 LIKE 通配符。删除需要确认，只删除当前用户的目标文档；成功后清理详情并更新列表。共享权限和历史快照均通过外键级联清理。
 
 新建和更新请求示例：
 
@@ -315,7 +316,7 @@ M2 Task 2 实测：新增格式列的迁移及重复执行成功，迁移前 9 �
 
 ## 文档共享与权限（M2 Task 3）
 
-从 M2 Task 2 升级时停止后端，使用已有 MySQL 客户端执行 `SOURCE sql/migrate-m2-sharing.sql;`，然后重新启动后端；前端启动命令不变。迁移只创建 `document_permissions`，不会改写用户或文档，也不会给旧文档自动授权。新安装的 `init.sql` 已包含同一张权限表。重复执行不会清空既有授权；已有同名表结构不一致时先检查，不要删除重建。
+共享表由 `sql/migrate-m2-sharing.sql` 增量建立，升级到当前版本还需运行后文的历史迁移；前端启动命令不变。迁移只创建 `document_permissions`，不会改写用户或文档，也不会给旧文档自动授权。新安装的 `init.sql` 已包含同一张权限表。重复执行不会清空既有授权；已有同名表结构不一致时先检查，不要删除重建。
 
 权限表包含自增 ID、`document_id`、`user_id`、`role`、创建/更新时间，均为 NOT NULL。`(document_id,user_id)` 唯一索引支持按文档查成员，另有 user_id 索引；CHECK 约束只允许 EDITOR/VIEWER，两个外键均有效，文档删除时授权通过 `ON DELETE CASCADE` 清理。OWNER 仅由 documents.owner_id 表示，共享 API 不生成 OWNER 记录，也不支持转移所有权。
 
@@ -409,6 +410,8 @@ actorId 为可选字段；并发通知可能合并为数据库中已提交的最
 
 ## 重复执行 M2 浏览器验收
 
+当前 M3 后端需先完成历史表迁移。既有 M2 验收记录保留原阶段测试数量；当前真库回归为 15 项，包含历史功能专项。
+
 已有 MySQL 和本地连接配置必须有效；先运行上面的前端构建及启用真库的 Maven `verify`。测试会创建随机标记的用户和文档，只删除自身成功流程创建的文档，不清空已有数据；失败时可能留下验收记录。迁移测试只在新建的 `dbclasshw_m2_verify_*` 库执行完整升级并保留证据。
 
 浏览器脚本使用本机 Edge 和可选的 Playwright Core，不加入应用依赖。若已有可用的 Playwright Core，通过 `PLAYWRIGHT_MODULE_PATH` 指向其模块目录即可；本次复用了 `backend/target/browser-check/node_modules/playwright-core`。全新环境需要时，可在 `backend/` 下单独安装到忽略目录：
@@ -429,3 +432,46 @@ node src/test/browser/ws.cjs
 ```
 
 `lifecycle.cjs` 验证注册、资料、富文本、重复提交、失败草稿、刷新、后端重启、持久化、快速切换、删除及 Session 失效；`sharing.cjs` 验证三用户共享界面与角色控制；`ws.cjs` 验证双向同步、查看者通知、在线/断线草稿与 409、自动重连及撤销。全部使用真实 API 和 MySQL；故障验证仅中断请求/业务 WebSocket，不伪造成功响应。日志和截图在 `backend/target/browser-check/`。Edge 在 Agent 沙箱内可能需要运行授权，不能以浏览器启动受限报告验收通过。
+
+## 文档历史版本与恢复（M3 Task 1）
+
+每次成功创建/保存，在同一事务中插入完整状态快照。创建为 v1，保存递增版本；例如 v1 → v2 → v3 后恢复 v1，会产生内容来自 v1 的 v4，原记录保持不变。历史记录无单独修改/删除接口；删除文档时通过外键级联清理。
+
+`document_versions` 包含主键、文档 ID、版本号、标题、正文、格式、修改者 ID、生成时间、change_type、source_version。`(document_id,version_number)` 唯一索引支持倒序查询；editor_id 外键和索引关联用户，删除用户受引用限制；document_id 外键级联删除。使用 InnoDB / utf8mb4，并校验正版本、格式、变更类型和恢复来源。类型为 CREATED、UPDATED、RESTORED、BASELINE。
+
+**已有 M2 数据库升级**：停止所有后端写入，按前面的备份说明保存数据库，使用已有 MySQL 客户端从 `backend/` 执行：
+
+```sql
+SOURCE sql/migrate-m3-history.sql;
+SELECT COUNT(*) FROM dbclasshw.documents;
+SELECT change_type,COUNT(*) FROM dbclasshw.document_versions GROUP BY change_type;
+SELECT COUNT(*) FROM dbclasshw.documents d
+LEFT JOIN dbclasshw.document_versions v ON v.document_id=d.id AND v.version_number=d.version
+WHERE v.id IS NULL;
+```
+
+最后一个查询应为 0。全新安装执行最新 `init.sql` 即包含四张业务表，不再运行升级脚本。旧 M1/M2 结构按前面的顺序先完成所有权、富文本和共享升级，再执行历史迁移。
+
+迁移只为尚无历史的文档补一条当前真实版本的 BASELINE，保留全部文档原字段。基线时间沿用 updated_at；editor_id 使用所有者作为基线归属人，**不表示其为实际最后修改者**，不会伪造更早记录。重复执行保留已有合法快照；发现历史超前、当前快照缺失或内容不一致时抛错停止，不能删除记录后强行继续。DDL 隐式提交，出现异常需检查已执行步骤，不依赖完整回滚。
+
+本机已停止后端并执行两次迁移：原 183 个用户、29 篇文档字段不变，29 篇旧文档均有唯一正确基线，未生成更早历史；快照比对材料位于忽略的 `backend/target/sharing-m3-*`。独立测试库验证迁移重跑、异常状态停止及新安装/升级的四表完整定义一致。
+
+| API | 请求 / 响应 |
+| --- | --- |
+| `GET /api/documents/{id}/versions` | 倒序元数据数组：versionNumber、title、editorId/editorName、createdAt、changeType、sourceVersion 等，不返回正文 |
+| `GET /api/documents/{id}/versions/{version}` | 完整快照，content 为字符串，contentFormat 明确标记 PLAIN_TEXT/TIPTAP_JSON |
+| `POST /api/documents/{id}/versions/{version}/restore` | JSON `{ "version": 3 }` 表示客户端读取的**当前版本号**；路径中的 version 为历史来源；成功 200 返回新当前文档 |
+
+OWNER/EDITOR/VIEWER 均可读取历史，OWNER/EDITOR 可恢复，VIEWER 恢复返回 403；无权文档及不存在版本返回 404，过期当前版本返回 409。恢复使用 Session + CSRF，不接受客户端指定修改者、所有者或新版本编号。复用文档锁、当前权限和原子乐观锁；文档更新与 RESTORED 插入原子提交，插入失败整笔回滚，成功提交后才发送 DOCUMENT_UPDATED。恢复保留来源格式，旧纯文本不会被猜测为 JSON 或 HTML。
+
+浏览器打开文档 →“历史版本”→选择版本只读预览；当前编辑器与草稿保持独立。恢复前确认生成新版本和保留历史；存在草稿会额外警告。取消或失败/409 保留草稿，成功后加载新当前版本；有权限的其他用户无草稿自动同步，有草稿只提示。预览失败支持重试，过期响应有序号保护。
+
+验证方式：运行前述 `npm run build` 和开启 `DBCLASSHW_MYSQL_TEST=true` 的 Maven `verify`；本次 15 项全部通过（原 14 项回归 + 历史专项），无失败或跳过。历史专项在新建的 `dbclasshw_m3_verify_*` 库用临时触发器拒绝快照，验证创建/保存/恢复回滚、失败不通知、唯一约束、并发、权限撤销和级联；不在原业务库注入失败，测试库保留。
+
+已有 Edge/Playwright Core 环境中，保持前后端运行，在 `backend/` 执行：
+
+```powershell
+node src/test/browser/history.cjs
+```
+
+本次真实 Edge 已通过 v1–v6 历史、只读预览、OWNER/EDITOR 恢复、VIEWER 只读、取消/409 草稿保护、双向恢复通知、刷新、失败预览重试及纯文本基线恢复；共享与 WebSocket 旧浏览器用例也通过。脚本使用随机测试用户，纯文本夹具由同目录 `HistoryPlainFixture.java` 在事务中创建，只写本轮用户数据，不改已有文档；成功后删除自身文档。截图在 `target/browser-check/history-success.png`。未实现自动保存、差异对比或单独删除历史记录。
